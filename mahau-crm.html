@@ -212,7 +212,7 @@ function analyze(customers,visits,days){
   const churned=customers.filter(c=>!cIn[c.id]&&visits.some(v=>v.cid===c.id&&v.date<cut))
     .map(c=>{const vs=visits.filter(v=>v.cid===c.id);const last=vs.sort((a,b)=>b.date.localeCompare(a.date))[0];const tot=vs.reduce((s,v)=>s+v.amount,0);return{name:c.name,phone:c.phone||"",last:last?last.date:null,away:last?dAgo(last.date):999,tot,count:vs.length};})
     .sort((a,b)=>b.tot-a.tot).slice(0,12);
-  const top=ids.map(id=>{const c=customers.find(x=>x.id===id);const vs=inP.filter(v=>v.cid===id);const tot=vs.reduce((s,v)=>s+v.amount,0);return{name:c?c.name:"?",count:vs.length,tot,tk:vs.length?tot/vs.length:0};}).sort((a,b)=>b.tot-a.tot).slice(0,10);
+  const top=ids.map(id=>{const c=customers.find(x=>x.id===id);const vs=inP.filter(v=>v.cid===id);const tot=vs.reduce((s,v)=>s+v.amount,0);return{name:c?c.name:"?",count:vs.length,tot,tk:vs.length?tot/vs.length:0};}).sort((a,b)=>b.tot-a.tot).slice(0,30);
   const byDay={};DAYS.forEach(d=>{byDay[d]={v:0,r:0};});inP.forEach(v=>{const d=dowOf(v.date);if(byDay[d]){byDay[d].v++;byDay[d].r+=v.amount;}});
   const dayStats=Object.entries(byDay).filter(e=>e[1].v>0).sort((a,b)=>b[1].r-a[1].r);
   const styles={};customers.forEach(c=>{if(c.style)styles[c.style]=(styles[c.style]||0)+1;});
@@ -643,10 +643,10 @@ function App(){
   const bdayW=data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=7);
   const bday30=data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=30);
   const topCustsFiltered=useMemo(()=>{
-    if(selMonth==="all")return rfmData.slice().sort((a,b)=>b.total-a.total).slice(0,5);
+    if(selMonth==="all")return rfmData.slice().sort((a,b)=>b.total-a.total).slice(0,10);
     const totByC={};
     filteredVisits.forEach(v=>{totByC[v.cid]=(totByC[v.cid]||0)+v.amount;});
-    return data.customers.map(c=>({...c,total:totByC[c.id]||0})).filter(c=>totByC[c.id]).sort((a,b)=>b.total-a.total).slice(0,5);
+    return data.customers.map(c=>({...c,total:totByC[c.id]||0})).filter(c=>totByC[c.id]).sort((a,b)=>b.total-a.total).slice(0,10);
   },[rfmData,filteredVisits,selMonth,data.customers]);
   const topCusts=topCustsFiltered;
   const dayCnt={};filteredVisits.forEach(v=>{const d=v.dow||dowOf(v.date);dayCnt[d]=(dayCnt[d]||0)+1;});
@@ -1277,9 +1277,9 @@ function App(){
 
           {vipsAusentes.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a0a"}}>
             <Lbl c="#b8860b">👑 VIPs ausentes — contactar esta semana</Lbl>
-            {vipsAusentes.slice(0,5).map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
+            {vipsAusentes.map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
               <div>
-                <div style={{fontSize:13,color:"#f0e0b0",fontWeight:600}}>{c.name}</div>
+                <div onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#f0e0b0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</div>
                 <div style={{fontSize:11,color:"#6a5020"}}>{fmt(c.avgTicket)} tk médio · ausente {dAgo(c.last)}d</div>
               </div>
               <WaBtn phone={c.phone}/>
@@ -1290,7 +1290,7 @@ function App(){
             <Lbl c="#c87828">⚠️ Em Risco — janela de recuperação aberta</Lbl>
             {emRisco.map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
               <div>
-                <div style={{fontSize:13,color:"#f0d8b0",fontWeight:600}}>{c.name}</div>
+                <div onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#f0d8b0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</div>
                 <div style={{fontSize:11,color:"#6a4020"}}>{c.count} visitas · sumiu há {dAgo(c.last)}d</div>
               </div>
               <WaBtn phone={c.phone}/>
@@ -1334,11 +1334,11 @@ function App(){
         return <div>
           {atrasados.length>0&&<div style={{marginBottom:16}}>
             <div style={{fontSize:9,letterSpacing:2,color:"#aa4a2a",textTransform:"uppercase",marginBottom:10,fontFamily:"Georgia,serif"}}>🔴 Atrasados para voltar ({atrasados.length})</div>
-            {atrasados.slice(0,15).map(c=><div key={c.id} style={{background:"#0f0f0f",border:"1px solid #2a1a0a",borderRadius:9,padding:"12px 16px",marginBottom:7}}>
+            {atrasados.map(c=><div key={c.id} style={{background:"#0f0f0f",border:"1px solid #2a1a0a",borderRadius:9,padding:"12px 16px",marginBottom:7}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{flex:1}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                    <span style={{fontSize:13,color:"#f0e0b0",fontWeight:600}}>{c.name}</span>
+                    <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#f0e0b0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</span>
                     <Bdg segment={c.segment} color={c.color}/>
                     <WaBtn phone={c.phone}/>
                   </div>
@@ -1355,11 +1355,11 @@ function App(){
 
           {naHora.length>0&&<div style={{marginBottom:16}}>
             <div style={{fontSize:9,letterSpacing:2,color:"#4a8a4a",textTransform:"uppercase",marginBottom:10,fontFamily:"Georgia,serif"}}>🟢 Deve voltar em breve ({naHora.length})</div>
-            {naHora.slice(0,10).map(c=><div key={c.id} style={{background:"#0f0f0f",border:"1px solid #1a2a1a",borderRadius:9,padding:"12px 16px",marginBottom:7}}>
+            {naHora.map(c=><div key={c.id} style={{background:"#0f0f0f",border:"1px solid #1a2a1a",borderRadius:9,padding:"12px 16px",marginBottom:7}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{flex:1}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                    <span style={{fontSize:13,color:"#d0f0c8",fontWeight:600}}>{c.name}</span>
+                    <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#d0f0c8",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</span>
                     <WaBtn phone={c.phone}/>
                   </div>
                   <div style={{fontSize:11,color:"#4a6a4a"}}>
