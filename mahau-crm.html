@@ -551,21 +551,23 @@ function App(){
     imp.rows.forEach((row,i)=>{
       const name=String(row[map.name]||"").trim();
       if(!name)return;
+      const ph=map.phone?normPhone(row[map.phone]):"";
+      const bd=map.bday?normBday(row[map.bday]):"";
+      const st=map.style?String(row[map.style]||"").trim():"";
       const nl=name.toLowerCase();
-      let ex=newC.find(c=>c.name.toLowerCase().trim()===nl);
+      // Dedup: telefone tem prioridade, depois nome
+      let ex=ph?newC.find(c=>c.phone&&normPhone(c.phone)===ph):null;
+      if(!ex)ex=newC.find(c=>c.name.toLowerCase().trim()===nl);
       let cid;
       if(ex){
-        // merge
-        const ph=map.phone?normPhone(row[map.phone]):"";
-        const bd=map.bday?normBday(row[map.bday]):"";
-        const st=map.style?String(row[map.style]||"").trim():"";
+        // merge — atualiza campos vazios
         if(ph&&!ex.phone)ex.phone=ph;
         if(bd&&!ex.bday)ex.bday=bd;
         if(st&&!ex.style)ex.style=st;
         cid=ex.id;merged++;
       }else{
         const rid="imp"+i+"_"+Math.random().toString(36).slice(2);
-        newC.push({id:rid,name,phone:map.phone?normPhone(row[map.phone]):"",bday:map.bday?normBday(row[map.bday]):"",style:map.style?String(row[map.style]||"").trim():"",notes:"",created:today()});
+        newC.push({id:rid,name,phone:ph,bday:bd,style:st,notes:"",created:today()});
         cid=rid;added++;
       }
       const amount=map.amount?normAmt(row[map.amount]):0;
