@@ -425,7 +425,12 @@ function App(){
   const [goalInput,setGoalInput]=useState("");
 
   // Auth — REQUIRED for any data
-  const [role,setRole]=useState(null); // null = not logged in
+  const SESSION_KEY="mahau_auth";
+  const SESSION_TTL=8*60*60*1000;
+  function restoreSession(){try{const s=JSON.parse(sessionStorage.getItem(SESSION_KEY)||"null");if(s&&s.role&&(Date.now()-s.ts)<SESSION_TTL)return s.role;}catch{}return null;}
+  function saveSession(r){try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({role:r,ts:Date.now()}));}catch{}}
+  function clearSession(){try{sessionStorage.removeItem(SESSION_KEY);}catch{}}
+  const [role,setRole]=useState(()=>restoreSession());
   const [pinInput,setPinInput]=useState("");
   const [pinErr,setPinErr]=useState("");
   const [firstSetup,setFirstSetup]=useState(false);
@@ -470,8 +475,8 @@ function App(){
   const isMgr=role==="admin"||role==="manager";
 
   function tryPin(){
-    if(pinInput===data.adminPin&&data.adminPin){setRole("admin");setPinInput("");setPinErr("");tk("Sócio — acesso total ✓");}
-    else if(pinInput===data.managerPin&&data.managerPin){setRole("manager");setPinInput("");setPinErr("");tk("Gerente — acesso desbloqueado ✓");}
+    if(pinInput===data.adminPin&&data.adminPin){setRole("admin");saveSession("admin");setPinInput("");setPinErr("");tk("Sócio — acesso total ✓");}
+    else if(pinInput===data.managerPin&&data.managerPin){setRole("manager");saveSession("manager");setPinInput("");setPinErr("");tk("Gerente — acesso desbloqueado ✓");}
     else setPinErr("PIN incorreto.");
   }
   function saveSetup(first){
@@ -747,7 +752,7 @@ function App(){
         {NAV.map(t=><button key={t.k} onClick={()=>{setView(t.k);setSearch("");}} style={{padding:"4px 8px",borderRadius:6,border:view===t.k?"1px solid #c8a030":"1px solid #1e1e1e",background:view===t.k?"#15100a":"transparent",color:view===t.k?"#e8c050":"#8a8a8a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>{t.l}</button>)}
         <div style={{display:"flex",gap:3,alignItems:"center",marginLeft:3}}>
           <span style={{fontSize:9,color:{admin:"#e8c050",manager:"#5aaa8a"}[role],border:"1px solid "+{admin:"#e8c050",manager:"#5aaa8a"}[role]+"44",borderRadius:20,padding:"3px 8px"}}>{{admin:"Sócio",manager:"Gerente"}[role]}</span>
-          <button onClick={()=>setRole(null)} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>Sair</button>
+          <button onClick={()=>{setRole(null);clearSession();}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>Sair</button>
           {isAdmin&&<button onClick={()=>{setSetupA(data.adminPin||"");setSetupM(data.managerPin||"");setSetupModal(true);}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>⚙ PINs</button>}
         </div>
       </div>
@@ -1247,14 +1252,41 @@ function App(){
         ];
         // VIPs ausentes (14+ dias)
         const vipsAusentes=rfmData.filter(c=>c.avgTicket>=1000&&dAgo(c.last)>=14).sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Fiéis que sumiram (segment Fiel mas 7+ dias ausente)
+        const fieisSumiram=rfmData.filter(c=>c.segment==="Fiel"&&dAgo(c.last)>=7).sort((a,b)=>dAgo(b.last)-dAgo(a.last)).slice(0,10);
         // Em risco com historico
-        const emRisco=rfmData.filter(c=>c.segment==="Em Risco").slice(0,8);
+        const emRisco=rfmData.filter(c=>c.segment==="Em Risco").sort((a,b)=>dAgo(b.last)-dAgo(a.last)).slice(0,10);
+        // Potenciais para ativar
+        const potenciais=rfmData.filter(c=>c.segment==="Potencial").sort((a,b)=>dAgo(a.last)-dAgo(b.last)).slice(0,10);
         // Clientes novos na semana
         const novos=data.customers.filter(c=>c.created&&c.created>=cut7);
+
+        function exportBriefExcel(){
+          const wb=XLSX.utils.book_new();
+          const header=["Nome","Telefone","Segmento","Ausente (dias)","Ticket Médio","Total Gasto","Visitas"];
+          const toRow=c=>[c.name||"",c.phone||"",c.segment||"",dAgo(c.last),fmt(c.avgTicket||0),fmt(c.total||0),c.count||0];
+          const mkSheet=(arr)=>{
+            const rows=[header,...arr.map(toRow)];
+            return XLSX.utils.aoa_to_sheet(rows);
+          };
+          if(vipsAusentes.length)XLSX.utils.book_append_sheet(wb,mkSheet(vipsAusentes),"VIPs Ausentes");
+          if(fieisSumiram.length)XLSX.utils.book_append_sheet(wb,mkSheet(fieisSumiram),"Fiéis Sumiram");
+          if(emRisco.length)XLSX.utils.book_append_sheet(wb,mkSheet(emRisco),"Em Risco");
+          if(potenciais.length)XLSX.utils.book_append_sheet(wb,mkSheet(potenciais),"Potenciais");
+          if(bdayThisWeek.length){
+            const bdayHeader=["Nome","Telefone","Aniversário","Dias até"];
+            const bdayRows=[bdayHeader,...bdayThisWeek.map(c=>[c.name||"",c.phone||"",fmtBday(c.bday),dUntilBday(c.bday)])];
+            XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(bdayRows),"Aniversários");
+          }
+          if(!wb.SheetNames.length){alert("Nenhum dado para exportar.");return;}
+          const semStr=hoje.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}).replace("/","-");
+          XLSX.writeFile(wb,`Brief_Mahau_${semStr}.xlsx`);
+        }
+
         return <div>
           <Card s={{marginBottom:12,borderColor:"#2a2010",background:"#0e0c06"}}>
             <div style={{fontSize:12,color:"#8a6020",marginBottom:12,letterSpacing:1}}>{semanaStr}</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:12}}>
               {[["Receita 7 dias",fmt(revWeek)],["vs semana anterior",growth!==null?(growth>0?"▲ +":"▼ ")+growth+"%":"—"],["Visitas",visWeek.length],["Novos clientes",novos.length]].map(([l,v])=>
                 <div key={l} style={{background:"#0a0a08",borderRadius:7,padding:"10px 12px"}}>
                   <div style={{fontSize:9,color:"#5a4828",textTransform:"uppercase",letterSpacing:2,fontFamily:"Georgia,serif",marginBottom:4}}>{l}</div>
@@ -1262,6 +1294,18 @@ function App(){
                 </div>
               )}
             </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+              {[["👑 VIPs",vipsAusentes.length,"#b8860b"],["🏅 Fiéis",fieisSumiram.length,"#2a8a4a"],["⚠️ Risco",emRisco.length,"#c87828"],["🌱 Potenc.",potenciais.length,"#1a6aaa"]].map(([l,n,c])=>
+                <div key={l} style={{background:"#0a0a08",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:"#4a4028",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{l}</div>
+                  <div style={{fontSize:18,color:c,fontWeight:700}}>{n}</div>
+                </div>
+              )}
+            </div>
+            <button onClick={exportBriefExcel}
+              style={{width:"100%",padding:"10px",background:"#1a1500",border:"1px solid #b8860b",borderRadius:8,color:"#c8a030",fontFamily:"Georgia,serif",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              📊 Exportar Brief Excel — enviar para equipe
+            </button>
           </Card>
 
           {bdayThisWeek.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a2a"}}>
@@ -1286,6 +1330,17 @@ function App(){
             </div>)}
           </Card>}
 
+          {fieisSumiram.length>0&&<Card s={{marginBottom:12,borderColor:"#1a3a2a"}}>
+            <Lbl c="#2a9a5a">🏅 Fiéis que sumiram — reativar agora</Lbl>
+            {fieisSumiram.map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
+              <div>
+                <div onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#c0f0d0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</div>
+                <div style={{fontSize:11,color:"#3a6a4a"}}>{c.count} visitas · sumiu há {dAgo(c.last)}d · {fmt(c.avgTicket)} tk médio</div>
+              </div>
+              <WaBtn phone={c.phone}/>
+            </div>)}
+          </Card>}
+
           {emRisco.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a10"}}>
             <Lbl c="#c87828">⚠️ Em Risco — janela de recuperação aberta</Lbl>
             {emRisco.map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
@@ -1297,7 +1352,18 @@ function App(){
             </div>)}
           </Card>}
 
-          {bdayThisWeek.length===0&&vipsAusentes.length===0&&emRisco.length===0&&
+          {potenciais.length>0&&<Card s={{marginBottom:12,borderColor:"#1a2a3a"}}>
+            <Lbl c="#2a7aaa">🌱 Potenciais — criar o hábito agora</Lbl>
+            {potenciais.map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
+              <div>
+                <div onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#b0d0f0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</div>
+                <div style={{fontSize:11,color:"#3a5a7a"}}>{c.count} visita{c.count!==1?"s":""} · último há {dAgo(c.last)}d · {fmt(c.avgTicket)} tk médio</div>
+              </div>
+              <WaBtn phone={c.phone}/>
+            </div>)}
+          </Card>}
+
+          {bdayThisWeek.length===0&&vipsAusentes.length===0&&fieisSumiram.length===0&&emRisco.length===0&&potenciais.length===0&&
             <Card><div style={{textAlign:"center",padding:"24px",color:"#3a3a3a",fontSize:13}}>Tudo tranquilo essa semana. Continua alimentando a base.</div></Card>}
         </div>;
       })()}
