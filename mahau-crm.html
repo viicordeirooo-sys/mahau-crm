@@ -1262,10 +1262,15 @@ function App(){
 
         // Clientes do promoter selecionado
         const myRfm=rfmData.filter(c=>getPromoter(c.id)===briefPromoter);
-        const vipsAusentes=myRfm.filter(c=>c.avgTicket>=1000&&dAgo(c.last)>=14).sort((a,b)=>dAgo(b.last)-dAgo(a.last));
-        const fieisSumiram=myRfm.filter(c=>c.segment==="Fiel"&&dAgo(c.last)>=7).sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // VIPs: todos, toda semana — relacionamento contínuo
+        const vips=myRfm.filter(c=>c.segment==="VIP").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Fiéis: todos, toda semana — manter hábito
+        const fieis=myRfm.filter(c=>c.segment==="Fiel").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Potenciais: todos, toda semana — janela curta
+        const potenciais=myRfm.filter(c=>c.segment==="Potencial").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Em Risco: todos, com alerta — janela de recuperação
         const emRisco=myRfm.filter(c=>c.segment==="Em Risco").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
-        const potenciais=myRfm.filter(c=>c.segment==="Potencial").sort((a,b)=>dAgo(a.last)-dAgo(b.last));
+        // Perdidos: fora do Brief
 
         // Predição do promoter
         const predicoes=data.customers.filter(c=>getPromoter(c.id)===briefPromoter).map(c=>{
@@ -1304,8 +1309,8 @@ function App(){
 
         function exportPromoterExcel(p){
           const pr=rfmData.filter(c=>getPromoter(c.id)===p);
-          const vips=pr.filter(c=>c.avgTicket>=1000&&dAgo(c.last)>=14);
-          const fieis=pr.filter(c=>c.segment==="Fiel"&&dAgo(c.last)>=7);
+          const vips=pr.filter(c=>c.segment==="VIP");
+          const fieis=pr.filter(c=>c.segment==="Fiel");
           const risco=pr.filter(c=>c.segment==="Em Risco");
           const pot=pr.filter(c=>c.segment==="Potencial");
           const bdays=[
@@ -1345,7 +1350,7 @@ function App(){
             {PROMOTERS.map(p=>{
               const pc=PROMOTER_COLORS[p];
               const myC=rfmData.filter(c=>getPromoter(c.id)===p);
-              const ativos=myC.filter(c=>c.avgTicket>=1000||c.segment==="Fiel"||c.segment==="Em Risco"||c.segment==="Potencial").length;
+              const ativos=myC.filter(c=>c.segment==="VIP"||c.segment==="Fiel"||c.segment==="Potencial"||c.segment==="Em Risco").length;
               const active=briefPromoter===p;
               return<button key={p} onClick={()=>setBriefPromoter(p)}
                 style={{padding:"10px 6px",borderRadius:8,border:"1px solid "+(active?pc:"#2a2a2a"),background:active?pc+"18":"#0d0d0d",color:active?pc:"#5a5a5a",cursor:"pointer",fontFamily:"Georgia,serif",textAlign:"center",transition:"all 0.15s"}}>
@@ -1374,15 +1379,15 @@ function App(){
           </Card>}
 
           {/* VIPs */}
-          {vipsAusentes.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a0a"}}>
-            <Lbl c="#b8860b">👑 VIPs ausentes — {briefPromoter}</Lbl>
-            {vipsAusentes.map(c=><ClientCard key={c.id} c={c}/>)}
+          {vips.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a0a"}}>
+            <Lbl c="#b8860b">👑 VIPs — {briefPromoter} ({vips.length})</Lbl>
+            {vips.map(c=><ClientCard key={c.id} c={c}/>)}
           </Card>}
 
           {/* Fiéis */}
-          {fieisSumiram.length>0&&<Card s={{marginBottom:12,borderColor:"#1a3a2a"}}>
-            <Lbl c="#2a9a5a">🏅 Fiéis que sumiram — {briefPromoter}</Lbl>
-            {fieisSumiram.map(c=><ClientCard key={c.id} c={c}/>)}
+          {fieis.length>0&&<Card s={{marginBottom:12,borderColor:"#1a3a2a"}}>
+            <Lbl c="#2a9a5a">🏅 Fiéis — {briefPromoter} ({fieis.length})</Lbl>
+            {fieis.map(c=><ClientCard key={c.id} c={c}/>)}
           </Card>}
 
           {/* Em Risco */}
@@ -1416,7 +1421,7 @@ function App(){
             </div>)}
           </Card>}
 
-          {vipsAusentes.length===0&&fieisSumiram.length===0&&emRisco.length===0&&potenciais.length===0&&predicoes.length===0&&bdayWeek.length===0&&
+          {vips.length===0&&fieis.length===0&&emRisco.length===0&&potenciais.length===0&&predicoes.length===0&&bdayWeek.length===0&&
             <Card><div style={{textAlign:"center",padding:"24px",color:"#3a3a3a",fontSize:13}}>Nada pra fazer essa semana, {briefPromoter}. 🎯</div></Card>}
         </div>;
       })()}
