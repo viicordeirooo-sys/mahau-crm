@@ -1,0 +1,1596 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CRM Mahau</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  const cfg = {
+    apiKey:"AIzaSyAuhNZWVRjlbkLiifsaZ7-ITXipLiYKqLE",
+    authDomain:"mahaucrm.firebaseapp.com",
+    projectId:"mahaucrm",
+    storageBucket:"mahaucrm.firebasestorage.app",
+    messagingSenderId:"733047479660",
+    appId:"1:733047479660:web:f02a4876f4015882d42749"
+  };
+  const app = initializeApp(cfg);
+  const db = getFirestore(app);
+  const REF = doc(db, "mahau", "crm");
+  window._db = {
+    load: async () => { try { const s=await getDoc(REF); return s.exists()?s.data():null; } catch { return null; } },
+    save: async (d) => { try { await setDoc(REF,d); return true; } catch { return false; } },
+    sub: (cb) => onSnapshot(REF, s=>{ if(s.exists()) cb(s.data()); })
+  };
+  window._dbReady = true;
+  window.dispatchEvent(new Event("dbReady"));
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0a0a;font-family:Georgia,serif;color:#ede5d0;}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:#111;}::-webkit-scrollbar-thumb{background:#3a2a10;}
+select option{background:#111;color:#e0d8c8;}
+input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.5);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useMemo} = React;
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const DAYS = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const STYLES = ["Funk","Sertanejo","Eletrônico","Pagode","Pop","Axé","Forró","Reggaeton","Hip Hop","Rock","MPB","Outro"];
+const SEGS = {VIP:"#b8860b",Fiel:"#2a6a3a",Potencial:"#1a3a6a","Em Risco":"#6a3a10",Perdido:"#5a2020"};
+const PERIODS = [{k:"mensal",l:"Mensal",d:30},{k:"trimestral",l:"Trimestral",d:90},{k:"semestral",l:"Semestral",d:180},{k:"anual",l:"Anual",d:365}];
+const EMPTY = {customers:[],visits:[],goal:0,adminPin:"",managerPin:"",promoterPins:{Ygor:"",Matheus:"",Mahau:""},configured:false,bdayContacts:[],waLogs:[]};
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
+const today = () => new Date().toISOString().slice(0,10);
+function waLink(phone){
+  if(!phone)return null;
+  const n=phone.replace(/[^\d\+]/g,"");
+  const num=n.startsWith("+")?n.slice(1):n.startsWith("55")?n:"55"+n;
+  return"https://wa.me/"+num;
+}
+function WaBtn({phone,s={},onLog}){
+  if(!phone)return null;
+  const link=waLink(phone);
+  if(!link)return null;
+  return<a href={link} target="_blank" rel="noopener noreferrer" onClick={e=>{e.stopPropagation();if(onLog)onLog();}}
+    style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:"50%",background:"#128C7E22",border:"1px solid #128C7E",cursor:"pointer",flexShrink:0,textDecoration:"none",...s}}
+    title="Abrir no WhatsApp">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+    </svg>
+  </a>;
+}
+
+const fmtDate = d => { try{return d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"—";}catch{return"—";} };
+const dowOf = d => { try{return DAYS[new Date(d+"T12:00:00").getDay()];}catch{return"?";} };
+const dAgo = d => { try{return d?Math.floor((Date.now()-new Date(d+"T12:00:00").getTime())/86400000):9999;}catch{return 9999;} };
+
+function autoEvent(dateStr){
+  if(!dateStr)return"";
+  const day=new Date(dateStr+"T12:00:00").getDay(); // 0=Dom,4=Qui,5=Sex,6=Sab
+  if(day===4||day===0)return"Funk";
+  if(day===5)return"Open Format";
+  if(day===6)return"Sertanejo / Open Format";
+  return"";
+}
+
+function normAmt(v){
+  if(!v)return 0;
+  if(typeof v==="number")return Math.round(v*100)/100;
+  return parseFloat(String(v).replace(/R\$/gi,"").replace(/\u00a0/g,"").replace(/\s/g,"").replace(/\./g,"").replace(",","."))||0;
+}
+function normPhone(v){return!v?"":String(v).replace(/[^\d\+\(\)\-\s]/g,"").trim();}
+function normBday(v){
+  if(!v)return "";
+  const s=String(v).trim();
+  const m1=s.match(/^(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.]\d{2,4})?$/);
+  if(m1)return m1[1].padStart(2,"0")+"/"+m1[2].padStart(2,"0");
+  const m2=s.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if(m2)return m2[2]+"/"+m2[1];
+  if(typeof v==="number"&&v>30000&&v<80000){
+    try{const d=new Date(Math.round((v-25569)*86400000));return String(d.getUTCDate()).padStart(2,"0")+"/"+String(d.getUTCMonth()+1).padStart(2,"0");}catch{}
+  }
+  return "";
+}
+function fmtBday(b){if(!b)return"—";const p=b.split("/");return p.length===2?p[0]+"/"+p[1]:b;}
+function bdayMonth(b){if(!b)return-1;const p=b.split("/");return p.length>=2?parseInt(p[1])-1:-1;}
+function bdayDay(b){if(!b)return-1;return parseInt((b.split("/")[0])||"-1");}
+function dUntilBday(b){
+  if(!b)return 9999;
+  try{
+    const now=new Date();const p=b.split("/");
+    const day=parseInt(p[0]),month=parseInt(p[1])-1;
+    let next=new Date(now.getFullYear(),month,day);
+    if(next<now)next=new Date(now.getFullYear()+1,month,day);
+    return Math.floor((next-now)/86400000);
+  }catch{return 9999;}
+}
+
+// ─── RFM ─────────────────────────────────────────────────────────────────────
+function rfmExplain(R,F,M,count,last,total,segment,avgTicket,vis30){
+  const away=dAgo(last);
+  const motivos=[];
+
+  if(segment==="VIP"){
+    motivos.push("ticket médio de "+fmt(avgTicket)+" por visita — acima de R$ 1.000");
+    motivos.push(count+" visita"+(count!==1?"s":"")+" registrada"+(count!==1?"s":""));
+    if(away<=14)motivos.push("veio nos últimos 14 dias");
+    else motivos.push("última visita há "+away+" dias");
+  } else if(segment==="Fiel"){
+    motivos.push(vis30+" visita"+(vis30!==1?"s":"")+" nos últimos 30 dias — frequência alta");
+    motivos.push("última visita há "+away+" dias");
+    motivos.push(count+" visita"+(count!==1?"s":"")+" no total");
+  } else if(segment==="Potencial"){
+    motivos.push("veio recentemente — há "+away+" dias");
+    motivos.push(count+" visita"+(count!==1?"s":"")+" apenas — ainda está no início");
+    motivos.push("ainda não criou hábito de retorno");
+  } else if(segment==="Em Risco"){
+    motivos.push("sumiu há "+away+" dias — era frequente");
+    motivos.push(count+" visita"+(count!==1?"s":"")+" no histórico — cliente conhecido");
+    motivos.push("momento crítico: janela de recuperação ainda aberta");
+  } else {
+    motivos.push("última visita há "+away+" dias");
+    motivos.push(count+" visita"+(count!==1?"s":"")+" no total — baixo engajamento");
+    if(avgTicket<50)motivos.push("consumo muito baixo ou zero");
+  }
+
+  const acao={
+    VIP:"Relacionamento personalizado. Avisa antes dos eventos especiais, reserva mesa, trata pelo nome. Não pode sumir.",
+    Fiel:"Reconhece a presença. Um gesto simples — uma mensagem, um brinde — cria lealdade longa.",
+    Potencial:"Momento de criar o hábito. Convida pro próximo evento, facilita o retorno enquanto ainda tá quente.",
+    "Em Risco":"Chama agora. Uma mensagem direta, sem enrolação. Pergunta se vai no próximo evento. Não deixa passar mais tempo.",
+    Perdido:"Deixa quieto. Não é telemarketing. Se voltar por conta própria, acolhe bem."
+  };
+
+  return{motivos,acao};
+}
+// RFM recalculated based on Mahau Bar logic
+// VIP: avg ticket > R$1000
+// Fiel: 3+ visits in last 30 days AND visited recently
+// Potencial: visited recently (last 30 days) but < 3 visits total
+// Em Risco: was frequent but gone 14+ days
+// Perdido: everything else
+function rfmSegMahau(avgTicket, visitsLast30, totalVisits, daysAway){
+  if(avgTicket>=1000)return{segment:"VIP",color:"#b8860b"};
+  if(visitsLast30>=3&&daysAway<=30)return{segment:"Fiel",color:"#2a6a3a"};
+  if(daysAway<=30&&totalVisits<3)return{segment:"Potencial",color:"#1a3a6a"};
+  if(totalVisits>=3&&daysAway>14)return{segment:"Em Risco",color:"#6a3a10"};
+  return{segment:"Perdido",color:"#5a2020"};
+}
+function rfmSeg(R,F,M){
+  // kept for legacy, not used directly anymore
+  return{segment:"Perdido",color:"#5a2020"};
+}
+function computeRFM(customers,visits){
+  if(!customers?.length)return[];
+  const cut30=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+  return customers.map(c=>{
+    const vs=visits.filter(v=>v.cid===c.id);
+    if(!vs.length){const sg=rfmSegMahau(0,0,0,9999);return{...c,R:1,F:1,M:1,avg:1,...sg,total:0,count:0,last:null,avgTicket:0,vis30:0};}
+    const sorted=vs.slice().sort((a,b)=>b.date.localeCompare(a.date));
+    const last=sorted[0].date;
+    const total=vs.reduce((s,v)=>s+v.amount,0);
+    const avgTicket=total/vs.length;
+    const vis30=vs.filter(v=>v.date>=cut30).length;
+    const away=dAgo(last);
+    const sg=rfmSegMahau(avgTicket,vis30,vs.length,away);
+    // Keep R,F,M for display purposes
+    const R=away<=14?5:away<=30?4:away<=60?3:away<=90?2:1;
+    const F=vs.length>=5?5:vs.length>=4?4:vs.length>=3?3:vs.length>=2?2:1;
+    const M=avgTicket>=1000?5:avgTicket>=500?4:avgTicket>=200?3:avgTicket>=50?2:1;
+    return{...c,R,F,M,avg:(R+F+M)/3,...sg,total,count:vs.length,last,avgTicket,vis30};
+  }).sort((a,b)=>b.avg-a.avg);
+}
+
+// ─── Analysis ─────────────────────────────────────────────────────────────────
+function analyze(customers,visits,days){
+  const cut=new Date(Date.now()-days*86400000).toISOString().slice(0,10);
+  const prev=new Date(Date.now()-days*2*86400000).toISOString().slice(0,10);
+  const inP=visits.filter(v=>v.date>=cut);
+  const prevP=visits.filter(v=>v.date>=prev&&v.date<cut);
+  const revP=inP.reduce((s,v)=>s+v.amount,0);
+  const revPrev=prevP.reduce((s,v)=>s+v.amount,0);
+  const growth=revPrev>0?(((revP-revPrev)/revPrev)*100).toFixed(1):null;
+  const tk=inP.length?revP/inP.length:0;
+  const cIn={};inP.forEach(v=>{cIn[v.cid]=true;});
+  const cPrev={};prevP.forEach(v=>{cPrev[v.cid]=true;});
+  const ids=Object.keys(cIn);
+  const newC=ids.filter(id=>{const all=visits.filter(v=>v.cid===id).sort((a,b)=>a.date.localeCompare(b.date));return all.length>0&&all[0].date>=cut;});
+  const ret=ids.filter(id=>cPrev[id]);
+  const churned=customers.filter(c=>!cIn[c.id]&&visits.some(v=>v.cid===c.id&&v.date<cut))
+    .map(c=>{const vs=visits.filter(v=>v.cid===c.id);const last=vs.sort((a,b)=>b.date.localeCompare(a.date))[0];const tot=vs.reduce((s,v)=>s+v.amount,0);return{name:c.name,phone:c.phone||"",last:last?last.date:null,away:last?dAgo(last.date):999,tot,count:vs.length};})
+    .sort((a,b)=>b.tot-a.tot).slice(0,12);
+  const top=ids.map(id=>{const c=customers.find(x=>x.id===id);const vs=inP.filter(v=>v.cid===id);const tot=vs.reduce((s,v)=>s+v.amount,0);return{name:c?c.name:"?",count:vs.length,tot,tk:vs.length?tot/vs.length:0};}).sort((a,b)=>b.tot-a.tot).slice(0,30);
+  const byDay={};DAYS.forEach(d=>{byDay[d]={v:0,r:0};});inP.forEach(v=>{const d=dowOf(v.date);if(byDay[d]){byDay[d].v++;byDay[d].r+=v.amount;}});
+  const dayStats=Object.entries(byDay).filter(e=>e[1].v>0).sort((a,b)=>b[1].r-a[1].r);
+  const styles={};customers.forEach(c=>{if(c.style)styles[c.style]=(styles[c.style]||0)+1;});
+  const bdays=customers.filter(c=>dUntilBday(c.bday)<=30&&c.bday).map(c=>c.name+" ("+fmtBday(c.bday)+")");
+  const lines=[];
+  lines.push("📊 RESUMO — "+days+" dias");
+  lines.push(ids.length+" clientes únicos · "+inP.length+" visitas · "+fmt(revP)+" · tk "+fmt(tk));
+  lines.push(newC.length+" novos · "+ret.length+" retornando · "+churned.length+" em risco");
+  if(growth!==null)lines.push("Crescimento vs período anterior: "+(growth>0?"+":"")+growth+"%");
+  lines.push("");
+  if(top.length){lines.push("👑 TOP CLIENTES");top.forEach((c,i)=>lines.push((i+1)+". "+c.name+": "+c.count+"x, "+fmt(c.tot)));lines.push("");}
+  if(dayStats.length){lines.push("📅 DIAS");dayStats.forEach(([d,x])=>lines.push(d+": "+x.v+" visitas, "+fmt(x.r)));lines.push("");}
+  if(Object.keys(styles).length){lines.push("🎵 ESTILOS MUSICAIS DA BASE");Object.entries(styles).sort((a,b)=>b[1]-a[1]).forEach(([s,n])=>lines.push(s+": "+n+" clientes"));lines.push("");}
+  if(churned.length){lines.push("⚠️ EM RISCO");churned.forEach(c=>lines.push(c.name+(c.phone?" 📱"+c.phone:"")+" — "+fmtDate(c.last)+" ("+c.away+"d), "+c.count+"x, "+fmt(c.tot)));lines.push("");}
+  if(bdays.length){lines.push("🎂 ANIVERSÁRIOS PRÓXIMOS 30D");bdays.forEach(b=>lines.push(b));lines.push("");}
+  lines.push("⚡ AÇÕES PRIORITÁRIAS");
+  let n=1;
+  churned.filter(c=>c.count>=3).slice(0,3).forEach(c=>{lines.push(n+". 🔴 "+c.name+(c.phone?" "+c.phone:"")+" — VIP sumiu há "+c.away+" dias");n++;});
+  bdays.slice(0,3).forEach(b=>{lines.push(n+". 🔴 "+b+" — Enviar convite aniversário");n++;});
+  churned.filter(c=>c.count>=2).filter(c=>!churned.filter(x=>x.count>=3).includes(c)).slice(0,3).forEach(c=>{lines.push(n+". 🟡 "+c.name+(c.phone?" "+c.phone:"")+" — Reativar, "+c.count+" visitas, sumiu "+c.away+"d");n++;});
+  if(dayStats.length){const b=dayStats[0];lines.push(n+". 🟢 Reforçar divulgação para "+b[0]+" — melhor dia ("+b[1].v+" visitas, "+fmt(b[1].r)+")");}
+  return lines.join("\n");
+}
+
+function exportPDF(title,content){
+  const w=window.open("","_blank");
+  w.document.write(`<!DOCTYPE html><html><head><meta charset='utf-8'><title>${title}</title><style>body{font-family:Georgia,serif;max-width:780px;margin:40px auto;padding:0 24px;line-height:1.8;color:#1a1a1a}h1{color:#7a5010;border-bottom:2px solid #c8a030;padding-bottom:10px;font-size:18px}.meta{color:#8a8060;font-size:11px;margin-bottom:24px}pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:13px}</style></head><body><h1>Mahau Bar · ${title}</h1><div class='meta'>Gerado em ${new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}</div><pre>${content}</pre><script>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+  w.document.close();
+}
+
+// ─── UI atoms ─────────────────────────────────────────────────────────────────
+function F({label,value,onChange,type="text",placeholder="",note=""}){
+  return <div style={{marginBottom:13}}>
+    <label style={{display:"block",fontSize:9,letterSpacing:2.5,color:"#6a5e40",textTransform:"uppercase",marginBottom:5,fontFamily:"Georgia,serif"}}>{label}{note&&<span style={{color:"#4a4030",marginLeft:6,textTransform:"none",letterSpacing:0,fontSize:10}}>{note}</span>}</label>
+    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      style={{width:"100%",boxSizing:"border-box",background:"#0f0f0f",border:"1px solid #222",borderRadius:7,padding:"10px 13px",color:"#e8e0d0",fontSize:13,fontFamily:"Georgia,serif",outline:"none"}}
+      onFocus={e=>e.target.style.borderColor="#b8922a"} onBlur={e=>e.target.style.borderColor="#222"}/>
+  </div>;
+}
+function Sel({label,value,onChange,children}){
+  return <div style={{marginBottom:13}}>
+    <label style={{display:"block",fontSize:9,letterSpacing:2.5,color:"#6a5e40",textTransform:"uppercase",marginBottom:5,fontFamily:"Georgia,serif"}}>{label}</label>
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",background:"#0f0f0f",border:"1px solid #222",borderRadius:7,padding:"10px 13px",color:"#e8e0d0",fontSize:13,fontFamily:"Georgia,serif",outline:"none"}}>{children}</select>
+  </div>;
+}
+function Bdg({segment,color}){return <span style={{background:color+"33",border:"1px solid "+color,borderRadius:20,padding:"2px 9px",fontSize:9,color,letterSpacing:1,whiteSpace:"nowrap"}}>{segment}</span>;}
+function Lbl({c="#8a7848",children}){return <div style={{fontSize:9,letterSpacing:3,color:c,textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}}>{children}</div>;}
+function Card({children,s={}}){return <div style={{background:"#0f0f0f",border:"1px solid #252525",borderRadius:9,padding:"14px 16px",...s}}>{children}</div>;}
+function GB({children,onClick,disabled,s={}}){return <button onClick={onClick} disabled={disabled} style={{width:"100%",padding:"12px",background:"#15100a",border:"1px solid #c8a030",borderRadius:8,color:"#c8a030",cursor:disabled?"not-allowed":"pointer",fontFamily:"Georgia,serif",fontSize:12,opacity:disabled?.5:1,...s}}>{children}</button>;}
+function GH({children,onClick,s={}}){return <button onClick={onClick} style={{width:"100%",padding:"10px",background:"none",border:"1px solid #2a2a2a",borderRadius:8,color:"#4a4a4a",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:11,...s}}>{children}</button>;}
+function TagRow({options,value,onChange}){
+  return <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+    {options.map(t=><button key={t} type="button" onClick={()=>onChange(value===t?"":t)}
+      style={{padding:"6px 13px",borderRadius:20,border:"1px solid "+(value===t?"#c8a030":"#2a2a2a"),background:value===t?"#1a1500":"transparent",color:value===t?"#c8a030":"#4a4a4a",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:11}}>
+      {t}</button>)}
+  </div>;
+}
+
+// ─── Column Mapper ────────────────────────────────────────────────────────────
+function Mapper({headers,rows,eventDate,onEventDate,onConfirm,onCancel}){
+  const FIELDS=[
+    {k:"name",l:"Nome *",req:true},
+    {k:"phone",l:"Telefone"},
+    {k:"bday",l:"Aniversário (dia/mês)"},
+    {k:"style",l:"Estilo Musical"},
+    {k:"amount",l:"Valor gasto (Total)"},
+    {k:"promoter",l:"Promoter"},
+  ];
+  const [map,setMap]=useState({});
+  useEffect(()=>{
+    const m={};
+    const lh=headers.map(h=>({o:h,l:h.toLowerCase()}));
+    const find=(...t)=>lh.find(h=>t.some(x=>h.l.includes(x)))?.o||"";
+    m.name=find("nome","name","cliente");
+    m.phone=find("fone","telefone","celular","whatsapp");
+    m.bday=find("nasc","aniver","birthday","nascimento");
+    m.style=find("estilo","musical","genero","gênero");
+    m.promoter=find("promoter","promotor","captador");
+    m.amount=find("total","valor","gasto","consumo","pago");
+    const totalExact=headers.find(h=>h.toLowerCase().trim()==="total");
+    if(totalExact)m.amount=totalExact;
+    setMap(m);
+  },[headers]);
+
+  const prev=map.name?rows.slice(0,3).map(r=>({nome:String(r[map.name]||"").trim(),tel:map.phone?normPhone(r[map.phone]):"",val:map.amount?normAmt(r[map.amount]):0})).filter(r=>r.nome):[];
+
+  return <div>
+    <Card s={{marginBottom:12}}>
+      <Lbl>Dados do Evento</Lbl>
+      <F label="Data do Evento *" note="(define o dia da semana corretamente)" value={eventDate} onChange={onEventDate} type="date"/>
+      <div style={{fontSize:11,color:"#5a5040",marginBottom:12,padding:"8px 12px",background:"#0a0a0a",borderRadius:6}}>
+        Dia: <b style={{color:"#c8a030"}}>{eventDate?dowOf(eventDate):"—"}</b> &nbsp;·&nbsp; Data: <b style={{color:"#c8a030"}}>{eventDate?fmtDate(eventDate):"—"}</b>
+        {eventDate&&autoEvent(eventDate)&&<span style={{marginLeft:8,color:"#8a7030"}}>· {autoEvent(eventDate)}</span>}
+      </div>
+      <Lbl>Mapear Colunas</Lbl>
+      <div style={{display:"grid",gap:10,marginBottom:14}}>
+        {FIELDS.map(f=><div key={f.k} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}}>
+          <div style={{fontSize:11,color:f.req?"#c8a030":"#6a6a6a",fontFamily:"Georgia,serif"}}>{f.l}</div>
+          <select value={map[f.k]||""} onChange={e=>setMap({...map,[f.k]:e.target.value})}
+            style={{background:"#0f0f0f",border:"1px solid #222",borderRadius:7,padding:"8px 10px",color:"#e8e0d0",fontSize:12,fontFamily:"Georgia,serif",outline:"none"}}>
+            <option value="">— Não mapear —</option>
+            {headers.map(h=><option key={h} value={h}>{h}</option>)}
+          </select>
+        </div>)}
+      </div>
+      {prev.length>0&&<div>
+        <div style={{fontSize:9,letterSpacing:2,color:"#5a4828",textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}}>Preview</div>
+        {prev.map((r,i)=><div key={i} style={{fontSize:11,color:"#8a7a58",padding:"4px 0",borderBottom:"1px solid #181818"}}>{r.nome}{r.tel?" · "+r.tel:""}{r.val>0?" · "+fmt(r.val):""}</div>)}
+      </div>}
+    </Card>
+    <GB onClick={()=>{if(!eventDate){alert("Defina a data do evento.");return;}if(!map.name){alert("Selecione a coluna de Nome.");return;}onConfirm(map);}} s={{marginBottom:8}}>✓ Confirmar e importar</GB>
+    <GH onClick={onCancel}>Cancelar</GH>
+  </div>;
+}
+
+// ─── Bday Importer component ─────────────────────────────────────────────────
+function BdayImporter({onImport}){
+  const [step,setStep]=useState("idle");
+  const [rows,setRows]=useState([]);
+  const [headers,setHeaders]=useState([]);
+  const [mapN,setMapN]=useState("");
+  const [mapB,setMapB]=useState("");
+  const [log,setLog]=useState("");
+  const [err,setErr]=useState("");
+  const ref=useRef();
+  function readFile(e){
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=evt=>{
+      try{
+        const wb=XLSX.read(evt.target.result,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const all=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        if(!all.length){setErr("Planilha vazia.");return;}
+        let hIdx=0;
+        for(let i=0;i<Math.min(10,all.length);i++){
+          if(all[i].some(c=>String(c).toLowerCase().includes("nome")||String(c).toLowerCase().includes("nasc")||String(c).toLowerCase().includes("aniv"))){hIdx=i;break;}
+        }
+        const hdr=all[hIdx].map(String).filter(h=>h.trim());
+        const objs=all.slice(hIdx+1).filter(r=>r.some(c=>String(c).trim())).map(r=>{const o={};hdr.forEach((h,i2)=>{o[h]=r[i2]!==undefined?r[i2]:"";});return o;});
+        if(!objs.length){setErr("Nenhum dado.");return;}
+        setRows(objs);setHeaders(hdr);
+        const lh=hdr.map(h=>({o:h,l:h.toLowerCase()}));
+        const find=(...t)=>lh.find(h=>t.some(x=>h.l.includes(x)))?.o||"";
+        setMapN(find("nome","name","cliente"));
+        setMapB(find("nasc","aniv","birthday","nascimento","data","birth"));
+        setStep("map");setErr("");
+      }catch(e){setErr("Erro: "+e.message);}
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  function doImport(){
+    if(!mapN){alert("Selecione a coluna de Nome.");return;}
+    const contacts=rows.map(r=>{
+      const name=String(r[mapN]||"").trim();if(!name)return null;
+      const bday=mapB?normBday(r[mapB]):"";
+      return{id:"bc_"+Math.random().toString(36).slice(2),name,bday,phone:""};
+    }).filter(Boolean);
+    onImport(contacts);setLog(contacts.length+" contatos importados");setStep("done");
+  }
+  if(step==="idle"||step==="done")return React.createElement("div",null,
+    React.createElement(Card,{s:{textAlign:"center",padding:"24px 20px",marginBottom:10}},
+      React.createElement("div",{style:{fontSize:28,marginBottom:10}},"🎂"),
+      React.createElement("div",{style:{fontSize:13,color:"#8a7a58",marginBottom:6}},"Envie o Excel de aniversários"),
+      React.createElement("div",{style:{fontSize:11,color:"#4a4030",marginBottom:16}},"Sem limite de linhas — lê tudo"),
+      React.createElement("input",{ref,type:"file",accept:".xlsx,.xls,.csv",onChange:readFile,style:{display:"none"}}),
+      React.createElement(GB,{onClick:()=>ref.current?.click()},"Escolher arquivo"),
+      log&&React.createElement("div",{style:{marginTop:14,fontSize:12,color:"#6aaa6a",background:"#0f1a0f",border:"1px solid #2a4a2a",borderRadius:7,padding:"10px 14px"}},log),
+      err&&React.createElement("div",{style:{marginTop:10,fontSize:11,color:"#aa4a4a"}},err)
+    )
+  );
+  if(step==="map")return React.createElement("div",null,
+    React.createElement(Card,{s:{marginBottom:12}},
+      React.createElement(Lbl,null,"Mapear Colunas"),
+      React.createElement("div",{style:{fontSize:11,color:"#5a5040",marginBottom:14}},rows.length+" linhas encontradas"),
+      React.createElement("div",{style:{display:"grid",gap:10,marginBottom:14}},
+        [["Nome *",mapN,setMapN],["Aniversário (DD/MM ou DD/MM/AAAA)",mapB,setMapB]].map(([l,v,set])=>
+          React.createElement("div",{key:l,style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}},
+            React.createElement("div",{style:{fontSize:11,color:"#c8a030",fontFamily:"Georgia,serif"}},l),
+            React.createElement("select",{value:v,onChange:e=>set(e.target.value),style:{background:"#0f0f0f",border:"1px solid #222",borderRadius:7,padding:"8px 10px",color:"#e8e0d0",fontSize:12,fontFamily:"Georgia,serif",outline:"none"}},
+              React.createElement("option",{value:""},"— Não mapear —"),
+              ...headers.map(h=>React.createElement("option",{key:h,value:h},h))
+            )
+          )
+        )
+      ),
+      mapN&&React.createElement("div",{style:{marginBottom:14}},
+        React.createElement("div",{style:{fontSize:9,letterSpacing:2,color:"#5a4828",textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}},"Preview"),
+        rows.slice(0,4).map((r,i)=>{const n=String(r[mapN]||"").trim();const b=mapB?normBday(r[mapB]):"";return n?React.createElement("div",{key:i,style:{fontSize:11,color:"#8a7a58",padding:"4px 0",borderBottom:"1px solid #181818"}},n+(b?" · 🎂 "+fmtBday(b):"")):"";})
+      )
+    ),
+    React.createElement(GB,{onClick:doImport,s:{marginBottom:8}},"Confirmar e importar "+rows.length+" contatos"),
+    React.createElement(GH,{onClick:()=>{setStep("idle");if(ref.current)ref.current.value="";}},"Cancelar")
+  );
+  return null;
+}
+
+// ─── Promoters ────────────────────────────────────────────────────────────────
+const PROMOTERS=["Ygor","Matheus","Mahau"];
+const PROMOTER_COLORS={"Ygor":"#b8860b","Matheus":"#2a7a5a","Mahau":"#6a3a9a"};
+function getPromoter(id){
+  if(!id)return PROMOTERS[0];
+  let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))%3;
+  return PROMOTERS[h];
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+function App(){
+  const [data,setData]=useState(EMPTY);
+  const [loaded,setLoaded]=useState(false);
+  const [dbOk,setDbOk]=useState(false);
+  const [view,setView]=useState("painel");
+  const [selId,setSelId]=useState(null);
+  const [search,setSearch]=useState("");
+  const [styleFilter,setStyleFilter]=useState("");
+  const [rfmFilter,setRfmFilter]=useState("Todos");
+  const [bdayMo,setBdayMo]=useState(new Date().getMonth());
+  const [toast,setToast]=useState({msg:"",err:false});
+  const [goalInput,setGoalInput]=useState("");
+  const [briefPromoter,setBriefPromoter]=useState("Ygor");
+
+  // Auth — REQUIRED for any data
+  const SESSION_KEY="mahau_auth";
+  const SESSION_TTL=8*60*60*1000;
+  function restoreSession(){try{const s=JSON.parse(localStorage.getItem(SESSION_KEY)||"null");if(s&&s.role&&(Date.now()-s.ts)<SESSION_TTL)return s.role;}catch{}return null;}
+  function saveSession(r){try{localStorage.setItem(SESSION_KEY,JSON.stringify({role:r,ts:Date.now()}));}catch{}}
+  function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch{}}
+  const [role,setRole]=useState(()=>restoreSession());
+  const [pinInput,setPinInput]=useState("");
+  const [pinErr,setPinErr]=useState("");
+  const [firstSetup,setFirstSetup]=useState(false);
+  const [setupA,setSetupA]=useState("");
+  const [setupM,setSetupM]=useState("");
+  const [setupPY,setSetupPY]=useState("");
+  const [setupPM,setSetupPM]=useState("");
+  const [setupPH,setSetupPH]=useState("");
+  const [setupModal,setSetupModal]=useState(false);
+
+  // Forms
+  const [cN,setCN]=useState("");const [cP,setCP]=useState("");const [cB,setCB]=useState("");const [cS,setCS]=useState("");const [cNt,setCNt]=useState("");
+  const [vCid,setVCid]=useState("");const [vDate,setVDate]=useState(today());const [vAmt,setVAmt]=useState("");const [vEv,setVEv]=useState("");const [vPro,setVPro]=useState("");const [vNt,setVNt]=useState("");
+
+  // Import
+  const [imp,setImp]=useState({step:"idle",rows:[],headers:[],log:"",err:"",eventDate:today()});
+  const fileRef=useRef();
+
+  // Analysis
+  const [aiMode,setAiMode]=useState("mensal");const [aiText,setAiText]=useState("");
+  const [exportStyle,setExportStyle]=useState("");
+  const [selMonth,setSelMonth]=useState("all"); // "all" or "YYYY-MM"
+
+  useEffect(()=>{
+    if(window._dbReady){setDbOk(true);return;}
+    window.addEventListener("dbReady",()=>setDbOk(true),{once:true});
+  },[]);
+
+  useEffect(()=>{
+    if(!dbOk)return;
+    window._db.load().then(d=>{
+      const m=Object.assign({},EMPTY,d||{});
+      setData(m);setGoalInput(String(m.goal||""));
+      setLoaded(true);
+      if(!m.configured)setFirstSetup(true);
+    });
+    const unsub=window._db.sub(d=>setData(Object.assign({},EMPTY,d)));
+    return ()=>{if(unsub)unsub();};
+  },[dbOk]);
+
+  // Redirect promoter to brief on any role change (including session restore)
+  useEffect(()=>{
+    if(role&&role.startsWith("promoter_")){
+      const name=role.split("_")[1];
+      setBriefPromoter(name);
+      setView("brief");
+    }
+  },[role]);
+
+  function save(nd){setData(nd);window._db&&window._db.save(nd);}
+  function tk(msg,err){setToast({msg,err:!!err});setTimeout(()=>setToast({msg:"",err:false}),2500);}
+  function logWa(promoter,clientId,clientName){
+    const log={promoter,clientId,clientName,ts:new Date().toISOString(),date:today()};
+    const logs=[...(data.waLogs||[]),log].slice(-2000); // keep last 2000
+    save(Object.assign({},data,{waLogs:logs}));
+  }
+
+  const isAdmin=role==="admin";
+  const isMgr=role==="admin"||role==="manager";
+  const isPromoter=role&&role.startsWith("promoter_");
+  const promoterName=isPromoter?role.split("_")[1]:null;
+
+  function tryPin(){
+    if(pinInput===data.adminPin&&data.adminPin){setRole("admin");saveSession("admin");setPinInput("");setPinErr("");tk("Sócio — acesso total ✓");}
+    else if(pinInput===data.managerPin&&data.managerPin){setRole("manager");saveSession("manager");setPinInput("");setPinErr("");tk("Gerente — acesso desbloqueado ✓");}
+    else{
+      const pp=data.promoterPins||{};
+      const found=PROMOTERS.find(p=>pp[p]&&pinInput===pp[p]);
+      if(found){const r="promoter_"+found;setRole(r);saveSession(r);setBriefPromoter(found);setView("brief");setPinInput("");setPinErr("");tk(found+" — Brief aberto ✓");}
+      else setPinErr("PIN incorreto.");
+    }
+  }
+  function saveSetup(first){
+    if(!setupA||setupA.length<4){tk("PIN do Sócio precisa ter ao menos 4 caracteres",true);return;}
+    const nd=Object.assign({},data,{adminPin:setupA,managerPin:setupM,promoterPins:{Ygor:setupPY,Matheus:setupPM,Mahau:setupPH},configured:true});
+    save(nd);
+    if(first){setFirstSetup(false);setRole("admin");tk("CRM configurado! ✓");}
+    else{setSetupModal(false);setSetupA("");setSetupM("");setSetupPY("");setSetupPM("");setSetupPH("");tk("PINs atualizados ✓");}
+  }
+
+  // Customer ops
+  function cVis(id){return data.visits.filter(v=>v.cid===id);}
+  function cTot(id){return cVis(id).reduce((s,v)=>s+v.amount,0);}
+  function cLast(id){const vs=cVis(id).sort((a,b)=>b.date.localeCompare(a.date));return vs.length?vs[0].date:null;}
+
+  function addCust(){
+    if(!cN.trim()||!isMgr)return;
+    if(data.customers.find(c=>c.name.toLowerCase().trim()===cN.toLowerCase().trim())){tk("Cliente já existe",true);return;}
+    save({...data,customers:[...data.customers,{id:Date.now()+"",name:cN,phone:cP,bday:cB?normBday(cB):"",style:cS,notes:cNt,created:today()}]});
+    setCN("");setCP("");setCB("");setCS("");setCNt("");
+    tk("Cliente cadastrado ✓");setView("clientes");
+  }
+  function addVisit(){
+    if(!vCid||!vDate||!vAmt||!isMgr)return;
+    const finalEvent=vEv||(vDate?autoEvent(vDate):"");
+    save({...data,visits:[...data.visits,{id:Date.now()+"",cid:vCid,date:vDate,amount:Number(vAmt),event:finalEvent,dow:dowOf(vDate),promoter:vPro,notes:vNt}]});
+    setVCid("");setVDate(today());setVAmt("");setVEv("");setVPro("");setVNt("");
+    tk("Visita registrada ✓");setView("clientes");
+  }
+  function delCust(id){
+    if(!isAdmin)return;
+    save({...data,customers:data.customers.filter(c=>c.id!==id),visits:data.visits.filter(v=>v.cid!==id)});
+    setView("clientes");
+  }
+  function saveGoal(){if(!isAdmin)return;save({...data,goal:Number(goalInput)||0});tk("Meta salva ✓");}
+
+  // Import
+  function readFile(e){
+    if(!isMgr){tk("Acesso restrito",true);return;}
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=evt=>{
+      try{
+        const wb=XLSX.read(evt.target.result,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const all=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        if(!all.length){setImp(p=>({...p,err:"Planilha vazia."}));return;}
+        let hIdx=0;
+        for(let i=0;i<Math.min(10,all.length);i++){
+          const row=all[i];
+          if(row.some(c=>String(c).toLowerCase().trim()==="nome")||row.some(c=>String(c).toLowerCase().includes("telefone"))){hIdx=i;break;}
+        }
+        const hdr=all[hIdx].map(String);
+        const dataRows=all.slice(hIdx+1).filter(row=>{
+          const f=String(row[0]||"").trim().toLowerCase();
+          return f&&f!=="total"&&f!=="totais"&&!f.includes("caixa")&&!f.startsWith("vnh");
+        });
+        const rows=dataRows.map(row=>{const o={};hdr.forEach((h,i)=>{o[h]=row[i]!==undefined?row[i]:"";});return o;});
+        if(!rows.length){setImp(p=>({...p,err:"Nenhum dado."}));return;}
+        setImp(p=>({...p,step:"mapping",rows,headers:hdr.filter(h=>h.trim()!==""),err:""}));
+      }catch(err){setImp(p=>({...p,err:"Erro: "+err.message}));}
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function doImport(map){
+    const evDate=imp.eventDate;
+    const evDow=dowOf(evDate);
+    const newC=[...data.customers];
+    const newV=[...data.visits];
+    let added=0,merged=0,visAdded=0;
+    imp.rows.forEach((row,i)=>{
+      const name=String(row[map.name]||"").trim();
+      if(!name)return;
+      const ph=map.phone?normPhone(row[map.phone]):"";
+      const bd=map.bday?normBday(row[map.bday]):"";
+      const st=map.style?String(row[map.style]||"").trim():"";
+      const nl=name.toLowerCase();
+      // Dedup: telefone tem prioridade, depois nome
+      let ex=ph?newC.find(c=>c.phone&&normPhone(c.phone)===ph):null;
+      if(!ex)ex=newC.find(c=>c.name.toLowerCase().trim()===nl);
+      let cid;
+      if(ex){
+        // merge — atualiza campos vazios
+        if(ph&&!ex.phone)ex.phone=ph;
+        if(bd&&!ex.bday)ex.bday=bd;
+        if(st&&!ex.style)ex.style=st;
+        cid=ex.id;merged++;
+      }else{
+        const rid="imp"+i+"_"+Math.random().toString(36).slice(2);
+        newC.push({id:rid,name,phone:ph,bday:bd,style:st,notes:"",created:today()});
+        cid=rid;added++;
+      }
+      const amount=map.amount?normAmt(row[map.amount]):0;
+      const promoter=map.promoter?String(row[map.promoter]||"").trim():"";
+      const autoEv=autoEvent(evDate);
+      newV.push({id:"v"+i+"_"+Math.random().toString(36).slice(2),cid,date:evDate,amount,event:autoEv,dow:evDow,promoter,notes:""});
+      visAdded++;
+    });
+    save({...data,customers:newC,visits:newV});
+    setImp(p=>({...p,step:"done",log:`✓ ${added} novos clientes\n✓ ${merged} clientes atualizados\n✓ ${visAdded} visitas em ${fmtDate(evDate)} (${evDow})`}));
+    tk("Importação concluída ✓");
+  }
+
+  // Export contacts
+  function exportContacts(segment){
+    const rfm=computeRFM(data.customers,data.visits);
+    const list=rfm.filter(c=>segment==="Todos"||c.segment===segment).filter(c=>c.phone).map(c=>`${c.name}\t${c.phone}\t${c.segment}\t${fmt(c.total)}`);
+    const content="Nome\tTelefone\tSegmento\tTotal Gasto\n"+list.join("\n");
+    const blob=new Blob([content],{type:"text/plain;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`mahau-contatos-${segment.toLowerCase()}.txt`;a.click();
+    URL.revokeObjectURL(url);
+    tk(`${list.length} contatos exportados ✓`);
+  }
+
+  function exportContactsFiltered(list, label){
+    if(!list.length){tk("Nenhum contato encontrado",true);return;}
+    const rows="Nome\tTelefone\tSegmento\tEstilo\tTotal Gasto\n"+list.map(c=>c.name+"\t"+c.phone+"\t"+c.segment+"\t"+(c.style||"")+"\t"+fmt(c.total)).join("\n");
+    const blob=new Blob([rows],{type:"text/plain;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download="mahau-"+label.toLowerCase().replace(/\s/g,"-")+".txt";a.click();
+    URL.revokeObjectURL(url);
+    tk(list.length+" contatos exportados ✓");
+  }
+
+  function exportSplit(list, label){
+    if(!list.length){tk("Nenhum contato",true);return;}
+    const size=Math.ceil(list.length/3);
+    let exported=0;
+    [0,1,2].forEach(i=>{
+      const part=list.slice(i*size,(i+1)*size);
+      if(!part.length)return;
+      const rows="Nome\tTelefone\tSegmento\tEstilo\tTotal Gasto\n"+part.map(c=>c.name+"\t"+c.phone+"\t"+c.segment+"\t"+(c.style||"")+"\t"+fmt(c.total)).join("\n");
+      const blob=new Blob([rows],{type:"text/plain;charset=utf-8"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");a.href=url;a.download="mahau-"+label+"-parte"+(i+1)+".txt";a.click();
+      URL.revokeObjectURL(url);
+      exported+=part.length;
+    });
+    tk("3 arquivos exportados — "+list.length+" contatos divididos ✓");
+  }
+
+  // Computed
+  // Available months from visits
+  const availMonths=useMemo(()=>{
+    const ms={};
+    data.visits.forEach(v=>{if(v.date){const ym=v.date.slice(0,7);ms[ym]=true;}});
+    return Object.keys(ms).sort().reverse();
+  },[data.visits]);
+
+  // Filter visits by selected month
+  const filteredVisits=useMemo(()=>{
+    if(selMonth==="all")return data.visits;
+    return data.visits.filter(v=>v.date&&v.date.startsWith(selMonth));
+  },[data.visits,selMonth]);
+
+  const rfmData=useMemo(()=>{try{return computeRFM(data.customers,data.visits);}catch{return[];};},[data]);
+  const totalRev=filteredVisits.reduce((s,v)=>s+v.amount,0);
+  const avgTk=filteredVisits.length?totalRev/filteredVisits.length:0;
+  const mRev=selMonth==="all"
+    ?data.visits.filter(v=>v.date>=today().slice(0,7)+"-01").reduce((s,v)=>s+v.amount,0)
+    :filteredVisits.reduce((s,v)=>s+v.amount,0);
+  const goalPct=data.goal>0?Math.min(100,Math.round(mRev/data.goal*100)):0;
+  const c30=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+  const c60=new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+  const r30=data.visits.filter(v=>v.date>=c30).reduce((s,v)=>s+v.amount,0);
+  const r60=data.visits.filter(v=>v.date>=c60&&v.date<c30).reduce((s,v)=>s+v.amount,0);
+  const rGrowth=r60>0?((r30-r60)/r60*100).toFixed(1):null;
+  const vipRisk=rfmData.filter(c=>c.segment==="Em Risco"&&c.count>=3);
+  const bdayW=data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=7);
+  const bday30=data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=30);
+  const topCustsFiltered=useMemo(()=>{
+    if(selMonth==="all")return rfmData.slice().sort((a,b)=>b.total-a.total).slice(0,10);
+    const totByC={};
+    filteredVisits.forEach(v=>{totByC[v.cid]=(totByC[v.cid]||0)+v.amount;});
+    return data.customers.map(c=>({...c,total:totByC[c.id]||0})).filter(c=>totByC[c.id]).sort((a,b)=>b.total-a.total).slice(0,10);
+  },[rfmData,filteredVisits,selMonth,data.customers]);
+  const topCusts=topCustsFiltered;
+  const dayCnt={};filteredVisits.forEach(v=>{const d=v.dow||dowOf(v.date);dayCnt[d]=(dayCnt[d]||0)+1;});
+  const period=PERIODS.find(p=>p.k===aiMode)||PERIODS[0];
+  const pRevs={};PERIODS.forEach(p=>{pRevs[p.k]=data.visits.filter(v=>v.date>=new Date(Date.now()-p.d*86400000).toISOString().slice(0,10)).reduce((s,v)=>s+v.amount,0);});
+  const bdayByMo=MONTHS.map((_,mi)=>data.customers.filter(c=>bdayMonth(c.bday)===mi).sort((a,b)=>bdayDay(a.bday)-bdayDay(b.bday)));
+  const bdayByMoTotal=MONTHS.map((_,mi)=>(data.customers.filter(c=>bdayMonth(c.bday)===mi).length)+((data.bdayContacts||[]).filter(c=>bdayMonth(c.bday)===mi).length));
+
+  const selCust=data.customers.find(c=>c.id===selId);
+  const selRfm=rfmData.find(c=>c.id===selId);
+  const selVis=selId?cVis(selId).slice().sort((a,b)=>b.date.localeCompare(a.date)):[];
+  let selFav="—",selLast="—",selMax="—";
+  if(selVis.length){
+    const dm={};selVis.forEach(v=>{const d=v.dow||dowOf(v.date);dm[d]=(dm[d]||0)+1;});
+    const fav=Object.entries(dm).sort((a,b)=>b[1]-a[1])[0];if(fav)selFav=fav[0];
+    selLast=fmtDate(selVis[0].date);
+    selMax=fmt(Math.max(...selVis.map(v=>v.amount)));
+  }
+
+  const filtC=data.customers.filter(c=>(c.name.toLowerCase().includes(search.toLowerCase())||(c.phone||"").includes(search))&&(!styleFilter||c.style===styleFilter));
+  const filtR=rfmData.filter(c=>(rfmFilter==="Todos"||c.segment===rfmFilter)&&c.name.toLowerCase().includes(search.toLowerCase()));
+
+  const NAV_FULL=[{k:"painel",l:"Painel"},{k:"clientes",l:"Clientes"},{k:"rfm",l:"◈ RFM"},{k:"aniversarios",l:"🎂 Aniversários"},{k:"novo",l:"+ Cliente"},{k:"visita",l:"+ Visita"},{k:"excel",l:"📂 Excel"},{k:"analise",l:"✦ Análise"},{k:"exportar",l:"📤 Exportar"},{k:"baseaniv",l:"📋 Base Aniversários"},{k:"brief",l:"📋 Brief Semanal"},{k:"predicao",l:"🔮 Predição"},{k:"performance",l:"📊 Performance"}];
+  const NAV=isPromoter?[{k:"brief",l:"📋 Brief Semanal"}]:NAV_FULL;
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if(!loaded)return(
+    <div style={{minHeight:"100vh",background:"#080808",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#4a4030",fontFamily:"Georgia,serif",gap:16}}>
+      <div style={{fontSize:20,color:"#c8a030",fontWeight:700}}>CRM Mahau</div>
+      <div style={{fontSize:12,letterSpacing:3}}>{dbOk?"CARREGANDO...":"CONECTANDO..."}</div>
+    </div>
+  );
+
+  // ── First setup ───────────────────────────────────────────────────────────────
+  if(firstSetup)return(
+    <div style={{minHeight:"100vh",background:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",padding:20}}>
+      <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:14,padding:32,width:"100%",maxWidth:400}}>
+        <div style={{fontSize:9,letterSpacing:4,color:"#a08040",textTransform:"uppercase",marginBottom:6}}>Mahau Bar · Itaim Bibi</div>
+        <div style={{fontSize:22,fontWeight:700,color:"#c8a030",marginBottom:4}}>CRM de Clientes</div>
+        <div style={{fontSize:12,color:"#4a4040",marginBottom:20}}>Configure os PINs de acesso</div>
+        <div style={{fontSize:11,color:"#5a5040",marginBottom:20,lineHeight:1.7,background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:8,padding:"12px 14px"}}>
+          <b style={{color:"#c8a030"}}>PIN do Sócio</b> — acesso total<br/>
+          <b style={{color:"#4a8a6a"}}>PIN do Gerente</b> — cadastrar e registrar visitas<br/>
+          <b style={{color:"#b8860b"}}>PIN dos Promoters</b> — só Brief Semanal<br/>
+          <span style={{color:"#4a4a4a"}}>Sem PIN = não vê nada</span>
+        </div>
+        <F label="PIN do Sócio (mín. 4 caracteres) *" value={setupA} onChange={setSetupA} placeholder="Ex: mahau2025"/>
+        <F label="PIN do Gerente (opcional)" value={setupM} onChange={setSetupM} placeholder="Ex: gerente123"/>
+        <F label="PIN do Ygor (opcional)" value={setupPY} onChange={setSetupPY} placeholder="Ex: ygor123"/>
+        <F label="PIN do Matheus (opcional)" value={setupPM} onChange={setSetupPM} placeholder="Ex: matheus123"/>
+        <F label="PIN do Mahau/Promoter (opcional)" value={setupPH} onChange={setSetupPH} placeholder="Ex: mahau123"/>
+        <button onClick={()=>saveSetup(true)} style={{width:"100%",marginTop:8,padding:"14px",background:"#15100a",border:"1px solid #c8a030",borderRadius:8,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:14}}>
+          Configurar e entrar
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── Login wall — block everything without PIN ─────────────────────────────────
+  if(!role)return(
+    <div style={{minHeight:"100vh",background:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",padding:20}}>
+      <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:14,padding:32,width:"100%",maxWidth:380}}>
+        <div style={{fontSize:9,letterSpacing:4,color:"#a08040",textTransform:"uppercase",marginBottom:6}}>Mahau Bar · Itaim Bibi</div>
+        <div style={{fontSize:22,fontWeight:700,color:"#c8a030",marginBottom:4}}>CRM de Clientes</div>
+        <div style={{fontSize:12,color:"#4a4040",marginBottom:24}}>Insira seu PIN para acessar</div>
+        <input type="password" value={pinInput} onChange={e=>setPinInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryPin()} placeholder="Digite o PIN" autoFocus
+          style={{width:"100%",boxSizing:"border-box",background:"#0f0f0f",border:"1px solid #333",borderRadius:7,padding:"13px",color:"#e8e0d0",fontSize:18,fontFamily:"Georgia,serif",outline:"none",letterSpacing:6,textAlign:"center",marginBottom:10}}/>
+        {pinErr&&<div style={{fontSize:11,color:"#aa4a4a",textAlign:"center",marginBottom:10}}>{pinErr}</div>}
+        <button onClick={tryPin} style={{width:"100%",padding:"13px",background:"#15100a",border:"1px solid #c8a030",borderRadius:8,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:14}}>Entrar</button>
+        <div style={{fontSize:11,color:"#3a3a3a",textAlign:"center",marginTop:16,lineHeight:1.6}}>PIN do Sócio — acesso total<br/>PIN do Gerente — cadastrar e registrar<br/>PIN do Promoter — só Brief Semanal</div>
+      </div>
+    </div>
+  );
+
+  // ── Change PINs modal ─────────────────────────────────────────────────────────
+  const setupModalEl=setupModal&&isAdmin&&(
+    <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:12,padding:28,width:320}}>
+        <Lbl>Alterar PINs</Lbl>
+        <F label="PIN do Sócio *" value={setupA} onChange={setSetupA} placeholder="Mín. 4 caracteres"/>
+        <F label="PIN do Gerente" value={setupM} onChange={setSetupM} placeholder="Opcional"/>
+        <div style={{fontSize:9,letterSpacing:2,color:"#6a5020",textTransform:"uppercase",marginBottom:6,marginTop:4,fontFamily:"Georgia,serif"}}>PINs dos Promoters</div>
+        <F label="PIN do Ygor" value={setupPY} onChange={setSetupPY} placeholder="Opcional"/>
+        <F label="PIN do Matheus" value={setupPM} onChange={setSetupPM} placeholder="Opcional"/>
+        <F label="PIN do Mahau/Promoter" value={setupPH} onChange={setSetupPH} placeholder="Opcional"/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <GB onClick={()=>saveSetup(false)}>Salvar</GB>
+          <GH onClick={()=>setSetupModal(false)}>Cancelar</GH>
+        </div>
+      </div>
+    </div>
+  );
+
+  return(
+  <div style={{minHeight:"100vh",background:"#080808",color:"#e0d8c8",fontFamily:"Georgia,serif"}}>
+
+    {toast.msg&&<div style={{position:"fixed",top:14,right:14,zIndex:200,background:toast.err?"#2a1414":"#1a2a1a",border:"1px solid "+(toast.err?"#6a3a3a":"#3a6a3a"),borderRadius:8,padding:"9px 16px",color:toast.err?"#aa6a6a":"#6aaa6a",fontSize:11}}>{toast.msg}</div>}
+    {setupModalEl}
+
+    {/* Nav */}
+    <div style={{background:"#111111",borderBottom:"1px solid #2a2a2a",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,flexWrap:"wrap",gap:6}}>
+      <div>
+        <div style={{fontSize:9,letterSpacing:4,color:"#a08040",textTransform:"uppercase"}}>Mahau Bar · Itaim Bibi</div>
+        <div style={{fontSize:16,fontWeight:700,color:"#e8c050"}}>CRM de Clientes</div>
+      </div>
+      <div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center"}}>
+        {NAV.map(t=><button key={t.k} onClick={()=>{setView(t.k);setSearch("");}} style={{padding:"4px 8px",borderRadius:6,border:view===t.k?"1px solid #c8a030":"1px solid #1e1e1e",background:view===t.k?"#15100a":"transparent",color:view===t.k?"#e8c050":"#8a8a8a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>{t.l}</button>)}
+        <div style={{display:"flex",gap:3,alignItems:"center",marginLeft:3}}>
+          <span style={{fontSize:9,color:isPromoter?"#b8860b":{admin:"#e8c050",manager:"#5aaa8a"}[role]||"#888",border:"1px solid "+(isPromoter?"#b8860b44":({admin:"#e8c05044",manager:"#5aaa8a44"}[role]||"#88888844")),borderRadius:20,padding:"3px 8px"}}>{isPromoter?promoterName:{admin:"Sócio",manager:"Gerente"}[role]}</span>
+          <button onClick={()=>{setRole(null);clearSession();}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>Sair</button>
+          {isAdmin&&<button onClick={()=>{setSetupA(data.adminPin||"");setSetupM(data.managerPin||"");const pp=data.promoterPins||{};setSetupPY(pp.Ygor||"");setSetupPM(pp.Matheus||"");setSetupPH(pp.Mahau||"");setSetupModal(true);}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>⚙ PINs</button>}
+        </div>
+      </div>
+    </div>
+
+    <div style={{maxWidth:820,margin:"0 auto",padding:"20px 16px"}}>
+
+    {/* PAINEL */}
+    {view==="painel"&&<div>
+      {/* Month selector */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <select value={selMonth} onChange={e=>setSelMonth(e.target.value)}
+          style={{flex:1,background:"#0f0f0f",border:"1px solid #c8a030",borderRadius:8,padding:"10px 14px",color:"#c8a030",fontSize:13,fontFamily:"Georgia,serif",outline:"none",fontWeight:600}}>
+          <option value="all">Todos os períodos</option>
+          {availMonths.map(ym=>{
+            const [y,m]=ym.split("-");
+            return<option key={ym} value={ym}>{MONTHS[parseInt(m)-1]} {y}</option>;
+          })}
+        </select>
+        {selMonth!=="all"&&<button onClick={()=>setSelMonth("all")} style={{padding:"10px 14px",background:"none",border:"1px solid #2a2a2a",borderRadius:8,color:"#4a4a4a",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:11}}>✕ Limpar</button>}
+      </div>
+      {(vipRisk.length>0||bdayW.length>0||(rGrowth!==null&&Number(rGrowth)<-10))&&
+        <Card s={{marginBottom:14,borderColor:"#2a2010",background:"#0e0c08"}}>
+          <Lbl c="#8a6020">⚡ Alertas</Lbl>
+          {vipRisk.length>0&&<div style={{fontSize:12,color:"#c87828",marginBottom:6}}>⚠ <b>{vipRisk.length} VIP{vipRisk.length!==1?"s":""} em risco</b> — {vipRisk.slice(0,3).map(c=>c.name).join(", ")}</div>}
+          {bdayW.length>0&&<div style={{fontSize:12,color:"#9a5a9a",marginBottom:6}}>🎂 <b>{bdayW.length} aniversário{bdayW.length!==1?"s":""} essa semana</b> — {bdayW.map(c=>c.name).join(", ")}</div>}
+          {rGrowth!==null&&Number(rGrowth)<-10&&<div style={{fontSize:12,color:"#9a3030"}}>📉 Receita 30d caiu <b>{Math.abs(rGrowth)}%</b></div>}
+        </Card>}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:14}}>
+        {[["Clientes",data.customers.length],["Visitas",filteredVisits.length],["Receita Total",fmt(totalRev)],["Ticket Médio",fmt(avgTk)]].map(([l,v])=>
+          <Card key={l}><Lbl>{l}</Lbl><div style={{fontSize:22,fontWeight:700,color:"#c8a030"}}>{v}</div></Card>)}
+      </div>
+
+      <Card s={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:data.goal>0?10:0}}>
+          <Lbl>🎯 Meta Mensal</Lbl>
+          {isAdmin&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input value={goalInput} onChange={e=>setGoalInput(e.target.value)} type="number" placeholder="R$ meta"
+              style={{width:110,background:"#0f0f0f",border:"1px solid #222",borderRadius:6,padding:"5px 9px",color:"#e8e0d0",fontSize:11,fontFamily:"Georgia,serif",outline:"none"}}/>
+            <button onClick={saveGoal} style={{padding:"5px 12px",background:"#15100a",border:"1px solid #c8a030",borderRadius:6,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:10}}>Salvar</button>
+          </div>}
+        </div>
+        {data.goal>0?<div>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{fontSize:12,color:"#8a7040"}}>{fmt(mRev)} este mês</span>
+            <span style={{fontSize:13,color:"#c8a030",fontWeight:700}}>{goalPct}%</span>
+          </div>
+          <div style={{height:10,background:"#1a1a1a",borderRadius:5,overflow:"hidden"}}>
+            <div style={{height:"100%",width:goalPct+"%",background:goalPct>=100?"#3a8a3a":goalPct>=60?"#c8a030":"#8a4020",borderRadius:5}}/>
+          </div>
+          <div style={{fontSize:10,color:"#4a4030",marginTop:5}}>Meta: {fmt(data.goal)} · Faltam: {fmt(Math.max(0,data.goal-mRev))}</div>
+        </div>:<div style={{fontSize:11,color:"#3a3a3a"}}>{isAdmin?"Defina uma meta acima.":"Meta não configurada."}</div>}
+      </Card>
+
+      {topCusts.length>0&&<Card s={{padding:0,overflow:"hidden",marginBottom:12}}>
+        <div style={{padding:"11px 16px",borderBottom:"1px solid #181818"}}><Lbl>Top Clientes</Lbl></div>
+        {topCusts.map((c,i)=><div key={c.id} onClick={()=>{setSelId(c.id);setView("perfil");}}
+          style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px",borderBottom:i<4?"1px solid #141414":"none",cursor:"pointer"}}
+          onMouseEnter={e=>e.currentTarget.style.background="#111"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <div style={{width:20,height:20,borderRadius:"50%",background:"#1a1408",border:"1px solid #3a2a10",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#c8a030"}}>{i+1}</div>
+            <div><div style={{fontSize:13,color:"#d0c8b0",marginBottom:2}}>{c.name}</div><Bdg segment={c.segment} color={c.color}/></div>
+          </div>
+          <div style={{color:"#c8a030",fontWeight:700,fontSize:14}}>{fmt(c.total)}</div>
+        </div>)}
+      </Card>}
+
+      {bday30.length>0&&<Card s={{borderColor:"#2a1a2a",marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <Lbl c="#6a3a6a">🎂 Aniversários próximos 30 dias</Lbl>
+          <button onClick={()=>setView("aniversarios")} style={{fontSize:10,color:"#8a5a9a",background:"none",border:"none",cursor:"pointer",fontFamily:"Georgia,serif",textDecoration:"underline"}}>ver todos</button>
+        </div>
+        {bday30.slice().sort((a,b)=>dUntilBday(a.bday)-dUntilBday(b.bday)).map(c=><div key={c.id} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #151515"}}>
+          <span style={{fontSize:13,color:"#c8b0d0"}}>{c.name}</span>
+          <span style={{fontSize:11,color:"#8a5a8a"}}>{fmtBday(c.bday)} · {dUntilBday(c.bday)}d</span>
+        </div>)}
+      </Card>}
+
+      {Object.keys(dayCnt).length>0&&<Card s={{marginBottom:14}}>
+        <Lbl>Visitas por Dia da Semana</Lbl>
+        <div style={{display:"flex",gap:6,alignItems:"flex-end",height:52}}>
+          {DAYS.map(d=>{const max=Math.max(...Object.values(dayCnt).concat([1]));const h=dayCnt[d]?Math.max(6,(dayCnt[d]/max)*44):4;return(
+            <div key={d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <div style={{fontSize:9,color:"#4a4030"}}>{dayCnt[d]||""}</div>
+              <div style={{width:"100%",height:h,background:dayCnt[d]?"#3a2a08":"#151515",borderRadius:3,border:dayCnt[d]?"1px solid #8a6010":"none"}}/>
+              <div style={{fontSize:9,color:"#4a4030"}}>{d}</div>
+            </div>);})}
+        </div>
+      </Card>}
+
+      {isAdmin&&data.customers.length>0&&<div style={{marginTop:8}}>
+        <GH onClick={()=>{if(window.confirm("ATENÇÃO: Apaga TODOS os clientes e visitas. Confirma?"))save({...data,customers:[],visits:[]});}}>🗑 Limpar todos os dados</GH>
+      </div>}
+
+      {data.customers.length===0&&<div style={{textAlign:"center",padding:"36px 20px",color:"#3a3a3a"}}>
+        <div style={{fontSize:26,marginBottom:10}}>◈</div>
+        <div style={{fontSize:13,marginBottom:14}}>Nenhum cliente ainda.</div>
+        {isMgr&&<div style={{display:"flex",gap:10,justifyContent:"center"}}>
+          <GB s={{width:"auto",padding:"10px 20px"}} onClick={()=>setView("novo")}>+ Cadastrar</GB>
+          <GB s={{width:"auto",padding:"10px 20px",borderColor:"#5a8a5a",color:"#6aaa6a"}} onClick={()=>setView("excel")}>📂 Importar Excel</GB>
+        </div>}
+      </div>}
+    </div>}
+
+    {/* ANIVERSÁRIOS */}
+    {view==="aniversarios"&&<div>
+      <Lbl>🎂 Aniversariantes por Mês</Lbl>
+      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:16}}>
+        {MONTHS.map((m,i)=>{const count=bdayByMo[i].length,cur=i===new Date().getMonth();
+          const tot=bdayByMoTotal[i];
+          return<button key={i} onClick={()=>setBdayMo(i)} style={{padding:"5px 9px",borderRadius:6,border:"1px solid "+(bdayMo===i?"#c8a030":cur?"#2a2010":"#1e1e1e"),background:bdayMo===i?"#15100a":cur?"#0e0a00":"transparent",color:bdayMo===i?"#c8a030":tot>0?"#8a7a58":"#3a3a3a",fontSize:10,cursor:"pointer",fontFamily:"Georgia,serif"}}>
+            {m.slice(0,3)}{tot>0&&<span style={{marginLeft:4,fontSize:9}}>{tot}</span>}
+          </button>;
+        })}
+      </div>
+      {(()=>{
+        const evList=bdayByMo[bdayMo];
+        const bcList=(data.bdayContacts||[]).filter(c=>bdayMonth(c.bday)===bdayMo).sort((a,b)=>bdayDay(a.bday)-bdayDay(b.bday));
+        const tot=evList.length+bcList.length;
+        return <div>
+          <div style={{fontSize:12,color:"#5a4828",marginBottom:12,display:"flex",gap:12,flexWrap:"wrap"}}>
+            <span>{tot} aniversariante{tot!==1?"s":""} em {MONTHS[bdayMo]}</span>
+            {evList.length>0&&<span style={{color:"#4a6a4a"}}>🎯 {evList.length} eventos</span>}
+            {bcList.length>0&&<span style={{color:"#6a4a6a"}}>🎂 {bcList.length} base aniv.</span>}
+          </div>
+          {tot===0&&<Card><div style={{textAlign:"center",padding:"20px",color:"#3a3a3a",fontSize:13}}>Nenhum aniversariante neste mês.</div></Card>}
+          {evList.length>0&&<div style={{marginBottom:14}}>
+            <div style={{fontSize:9,letterSpacing:2,color:"#4a6a4a",textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}}>Clientes de Eventos</div>
+            {evList.map(c=>{const rfm=rfmData.find(x=>x.id===c.id);const dl=dUntilBday(c.bday);
+              return<div key={c.id} onClick={()=>{setSelId(c.id);setView("perfil");}}
+                style={{background:"#0d0d0d",border:"1px solid "+(dl<=7?"#3a1a3a":"#1a1a1a"),borderRadius:9,padding:"12px 16px",marginBottom:7,cursor:"pointer"}}
+                onMouseEnter={e=>e.currentTarget.style.background="#111"} onMouseLeave={e=>e.currentTarget.style.background="#0d0d0d"}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <span style={{fontSize:13,color:"#d0c8a8",fontWeight:600}}>{c.name}</span>
+                      {rfm&&<Bdg segment={rfm.segment} color={rfm.color}/>}
+                      {dl<=7&&<span style={{fontSize:9,color:"#9a5a9a",border:"1px solid #9a5a9a",borderRadius:20,padding:"1px 7px"}}>ESSA SEMANA</span>}
+                    </div>
+                    {c.phone&&<div style={{fontSize:11,color:"#4a4a4a",display:"flex",alignItems:"center",gap:6}}>📱 {c.phone}<WaBtn phone={c.phone}/></div>}
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:13,color:"#c8b0d0",fontWeight:600}}>{fmtBday(c.bday)}</div>
+                    <div style={{fontSize:10,color:"#6a4a6a"}}>{dl===0?"Hoje!":dl+"d"}</div>
+                  </div>
+                </div>
+              </div>;})}
+          </div>}
+          {bcList.length>0&&<div>
+            <div style={{fontSize:9,letterSpacing:2,color:"#6a4a6a",textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}}>Base de Aniversários</div>
+            {bcList.map(c=>{const dl=dUntilBday(c.bday);
+              return<div key={c.id} style={{background:"#0d0d0d",border:"1px solid "+(dl<=7?"#3a1a3a":"#1a1a1a"),borderRadius:9,padding:"12px 16px",marginBottom:7}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <span style={{fontSize:13,color:"#d0c8a8",fontWeight:600}}>{c.name}</span>
+                      {dl<=7&&<span style={{fontSize:9,color:"#9a5a9a",border:"1px solid #9a5a9a",borderRadius:20,padding:"1px 7px"}}>ESSA SEMANA</span>}
+                    </div>
+                    {c.phone&&<div style={{fontSize:11,color:"#4a4a4a",display:"flex",alignItems:"center",gap:6}}>📱 {c.phone}<WaBtn phone={c.phone}/></div>}
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:13,color:"#c8b0d0",fontWeight:600}}>{fmtBday(c.bday)}</div>
+                    <div style={{fontSize:10,color:"#6a4a6a"}}>{dl===0?"Hoje!":dl+"d"}</div>
+                  </div>
+                </div>
+              </div>;})}
+          </div>}
+        </div>;
+      })()}
+
+    </div>}
+
+    {/* RFM */}
+    {view==="rfm"&&<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <Lbl>Score RFM — Segmentação</Lbl><span style={{fontSize:10,color:"#4a4030"}}>{rfmData.length} clientes</span>
+      </div>
+      <Card s={{marginBottom:14,padding:"12px 16px"}}>
+        <Lbl>O que é RFM?</Lbl>
+        <div style={{fontSize:11,color:"#5a5040",lineHeight:1.7}}><b style={{color:"#c8a030"}}>R</b>ecência — dias desde a última visita &nbsp;·&nbsp; <b style={{color:"#c8a030"}}>F</b>requência — vezes que veio &nbsp;·&nbsp; <b style={{color:"#c8a030"}}>M</b>onetário — quanto gastou vs outros</div>
+      </Card>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:14}}>
+        {Object.entries(SEGS).map(([seg,color])=>{const count=rfmData.filter(c=>c.segment===seg).length,active=rfmFilter===seg;
+          return<button key={seg} onClick={()=>setRfmFilter(active?"Todos":seg)} style={{padding:"8px 4px",borderRadius:7,border:"1px solid "+(active?color:"#1e1e1e"),background:active?color+"22":"#0d0d0d",color:active?color:"#4a4a4a",cursor:"pointer",fontFamily:"Georgia,serif",textAlign:"center"}}>
+            <div style={{fontSize:16,fontWeight:700}}>{count}</div><div style={{fontSize:9}}>{seg}</div>
+          </button>;
+        })}
+      </div>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{width:"100%",boxSizing:"border-box",background:"#0d0d0d",border:"1px solid #1e1e1e",borderRadius:8,padding:"9px 14px",color:"#e0d8c8",fontSize:13,fontFamily:"Georgia,serif",outline:"none",marginBottom:12}}/>
+      {filtR.map(c=><div key={c.id} onClick={()=>{setSelId(c.id);setView("perfil");}} style={{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:9,padding:"13px 16px",marginBottom:8,cursor:"pointer"}}
+        onMouseEnter={e=>e.currentTarget.style.borderColor="#3a2a10"} onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{flex:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <span style={{fontSize:14,color:"#f0e8c0",fontWeight:600}}>{c.name}</span><Bdg segment={c.segment} color={c.color}/><WaBtn phone={c.phone}/>
+            </div>
+            <div style={{display:"flex",gap:14,fontSize:10,color:"#4a4030",flexWrap:"wrap"}}>
+              <span>R:{c.R}·F:{c.F}·M:{c.M}</span><span>{c.count} visita{c.count!==1?"s":""}</span>
+              {c.last&&<span>última {fmtDate(c.last)}</span>}
+              {c.style&&<span>🎵 {c.style}</span>}
+              {c.bday&&<span>🎂 {fmtBday(c.bday)}</span>}
+            </div>
+          </div>
+          <div style={{color:"#c8a030",fontWeight:700,fontSize:14,marginLeft:12}}>{fmt(c.total)}</div>
+        </div>
+      </div>)}
+    </div>}
+
+    {/* CLIENTES */}
+    {view==="clientes"&&<div>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nome ou telefone..." style={{flex:1,minWidth:160,background:"#0d0d0d",border:"1px solid #1e1e1e",borderRadius:8,padding:"9px 14px",color:"#e0d8c8",fontSize:13,fontFamily:"Georgia,serif",outline:"none"}}/>
+        <select value={styleFilter} onChange={e=>setStyleFilter(e.target.value)} style={{background:"#0d0d0d",border:"1px solid #1e1e1e",borderRadius:8,padding:"9px 12px",color:styleFilter?"#c8a030":"#4a4a4a",fontSize:12,fontFamily:"Georgia,serif",outline:"none"}}>
+          <option value="">Todos estilos</option>
+          {STYLES.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+      <div style={{fontSize:11,color:"#4a4030",marginBottom:10}}>{filtC.length} cliente{filtC.length!==1?"s":""}</div>
+      {filtC.map(c=>{const rfm=rfmData.find(x=>x.id===c.id),total=cTot(c.id),vis=cVis(c.id),last=cLast(c.id);
+        return<div key={c.id} onClick={()=>{setSelId(c.id);setView("perfil");}} style={{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:9,padding:"13px 16px",marginBottom:8,cursor:"pointer"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="#3a2a10"} onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                <span style={{fontSize:14,color:"#f0e8c0",fontWeight:600}}>{c.name}</span>
+                {rfm&&<Bdg segment={rfm.segment} color={rfm.color}/>}
+                <WaBtn phone={c.phone}/>
+              </div>
+              <div style={{fontSize:11,color:"#3a3a3a",display:"flex",gap:10,flexWrap:"wrap"}}>
+                {c.phone&&<span>📱 {c.phone}</span>}
+                {c.style&&<span>🎵 {c.style}</span>}
+                {c.bday&&<span>🎂 {fmtBday(c.bday)}</span>}
+              </div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{color:"#c8a030",fontWeight:700,fontSize:14}}>{fmt(total)}</div>
+              <div style={{color:"#3a3a3a",fontSize:11}}>{vis.length}x · {last?fmtDate(last):"—"}</div>
+            </div>
+          </div>
+        </div>;
+      })}
+    </div>}
+
+    {/* PERFIL */}
+    {view==="perfil"&&selCust&&<div>
+      <button onClick={()=>setView("clientes")} style={{background:"none",border:"none",color:"#5a4828",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:11,letterSpacing:1,marginBottom:14,padding:0}}>← VOLTAR</button>
+      <Card s={{marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <span style={{fontSize:19,color:"#d0c080",fontWeight:700}}>{selCust.name}</span>
+              {selRfm&&<Bdg segment={selRfm.segment} color={selRfm.color}/>}
+            </div>
+            {selCust.phone&&<div style={{fontSize:12,color:"#5a5040",marginBottom:3,display:"flex",alignItems:"center",gap:8}}>📱 {selCust.phone}<WaBtn phone={selCust.phone}/></div>}
+            {selCust.bday&&<div style={{fontSize:12,color:"#7a5070",marginBottom:3}}>🎂 {fmtBday(selCust.bday)} · {dUntilBday(selCust.bday)===0?"Hoje!":dUntilBday(selCust.bday)+"d"}</div>}
+            {selCust.style&&<div style={{fontSize:12,color:"#4a6a4a",marginBottom:3}}>🎵 {selCust.style}</div>}
+            {selCust.notes&&<div style={{fontSize:12,color:"#4a4a4a"}}>📝 {selCust.notes}</div>}
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{color:"#c8a030",fontWeight:700,fontSize:20}}>{fmt(cTot(selCust.id))}</div>
+            <div style={{color:"#3a3a3a",fontSize:11}}>{selVis.length} visita{selVis.length!==1?"s":""}</div>
+            <div style={{color:"#3a3a3a",fontSize:11}}>tk médio {fmt(cTot(selCust.id)/(selVis.length||1))}</div>
+            {selRfm&&<div style={{fontSize:10,color:"#4a4030",marginTop:4}}>R:{selRfm.R}·F:{selRfm.F}·M:{selRfm.M}</div>}
+          </div>
+        </div>
+      </Card>
+      {selRfm&&<Card s={{marginBottom:12,borderColor:selRfm.color+"44",background:"#0a0a08"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <Bdg segment={selRfm.segment} color={selRfm.color}/>
+          <span style={{fontSize:11,color:selRfm.color,fontWeight:600}}>{selRfm.segment} — Por quê?</span>
+        </div>
+        {(()=>{const{motivos,acao}=rfmExplain(selRfm.R,selRfm.F,selRfm.M,selRfm.count,selRfm.last,selRfm.total,selRfm.segment,selRfm.avgTicket||0,selRfm.vis30||0);return(<div>
+          <div style={{marginBottom:8}}>
+            {motivos.map((m,i)=><div key={i} style={{fontSize:11,color:"#8a7a58",marginBottom:3,display:"flex",gap:6,alignItems:"flex-start"}}>
+              <span style={{color:selRfm.color,marginTop:1}}>·</span><span>{m}</span>
+            </div>)}
+          </div>
+          <div style={{fontSize:11,color:"#6a5a38",borderTop:"1px solid #1a1a1a",paddingTop:8,lineHeight:1.6}}>
+            <b style={{color:selRfm.color}}>Ação recomendada:</b> {acao[selRfm.segment]}
+          </div>
+        </div>);})()}
+      </Card>}
+      {selVis.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+        {[["Dia Favorito",selFav],["Última Visita",selLast],["Maior Gasto",selMax]].map(([l,v])=>
+          <Card key={l} s={{padding:"11px 13px"}}><div style={{fontSize:9,letterSpacing:2,color:"#4a3820",textTransform:"uppercase",marginBottom:4,fontFamily:"Georgia,serif"}}>{l}</div><div style={{fontSize:13,color:"#c0a840"}}>{v}</div></Card>)}
+      </div>}
+      {isAdmin&&<div style={{marginBottom:12}}>
+        <Lbl>Editar Aniversário (DD/MM)</Lbl>
+        <div style={{display:"flex",gap:8}}>
+          <input defaultValue={selCust.bday||""} id="bday-edit" placeholder="Ex: 21/05"
+            style={{flex:1,background:"#0f0f0f",border:"1px solid #222",borderRadius:7,padding:"9px 13px",color:"#e8e0d0",fontSize:13,fontFamily:"Georgia,serif",outline:"none"}}/>
+          <button onClick={()=>{
+            const val=document.getElementById("bday-edit").value;
+            const n=normBday(val);
+            if(!n&&val){tk("Formato inválido. Use DD/MM",true);return;}
+            save({...data,customers:data.customers.map(c=>c.id===selCust.id?{...c,bday:n}:c)});
+            tk("Aniversário salvo ✓");
+          }} style={{padding:"9px 16px",background:"#15100a",border:"1px solid #c8a030",borderRadius:7,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:11}}>Salvar</button>
+        </div>
+      </div>}
+      {isMgr&&<GB s={{marginBottom:12}} onClick={()=>{setVCid(selCust.id);setView("visita");}}>+ Registrar nova visita</GB>}
+      {selVis.length>0?<Card s={{padding:0,overflow:"hidden"}}>
+        <div style={{padding:"11px 16px",borderBottom:"1px solid #181818"}}><Lbl>Histórico de Visitas</Lbl></div>
+        {selVis.map((v,i)=><div key={v.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px",borderBottom:i<selVis.length-1?"1px solid #141414":"none"}}>
+          <div>
+            <div style={{fontSize:12,color:"#b0a070"}}>{fmtDate(v.date)} · {v.dow||dowOf(v.date)}</div>
+            {v.event&&<div style={{color:"#3a3a3a",fontSize:11}}>🎵 {v.event}</div>}
+            {v.promoter&&<div style={{color:"#3a3a3a",fontSize:11}}>👤 {v.promoter}</div>}
+          </div>
+          <div style={{color:"#c8a030",fontWeight:700,fontSize:14}}>{fmt(v.amount)}</div>
+        </div>)}
+      </Card>:<div style={{textAlign:"center",padding:"18px",color:"#3a3a3a",fontSize:12}}>Nenhuma visita registrada.</div>}
+      {isAdmin&&<GH s={{marginTop:12}} onClick={()=>{if(window.confirm("Deletar este cliente?"))delCust(selCust.id);}}>Excluir cliente</GH>}
+    </div>}
+
+    {/* NOVO CLIENTE */}
+    {view==="novo"&&<Card>
+      {!isMgr?<div style={{textAlign:"center",padding:"20px",color:"#6a4040",fontSize:13}}>🔒 Acesso restrito</div>:<div>
+        <Lbl>Cadastrar Cliente</Lbl>
+        <F label="Nome completo *" value={cN} onChange={setCN} placeholder="Ex: João Silva"/>
+        <F label="Telefone / WhatsApp" value={cP} onChange={setCP} placeholder="(11) 99999-9999"/>
+        <F label="Aniversário (DD/MM)" value={cB} onChange={setCB} placeholder="Ex: 21/05"/>
+        <Sel label="Estilo Musical" value={cS} onChange={setCS}>
+          <option value="">— Selecione —</option>
+          {STYLES.map(s=><option key={s} value={s}>{s}</option>)}
+        </Sel>
+        <F label="Observações" value={cNt} onChange={setCNt} placeholder="VIP, preferências..."/>
+        <GB onClick={addCust}>Salvar cliente</GB>
+      </div>}
+    </Card>}
+
+    {/* NOVA VISITA */}
+    {view==="visita"&&<Card>
+      {!isMgr?<div style={{textAlign:"center",padding:"20px",color:"#6a4040",fontSize:13}}>🔒 Acesso restrito</div>:<div>
+        <Lbl>Registrar Visita</Lbl>
+        <Sel label="Cliente *" value={vCid} onChange={setVCid}>
+          <option value="">— Selecione —</option>
+          {data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </Sel>
+        <F label="Data *" value={vDate} type="date" onChange={setVDate}/>
+        {vDate&&<div style={{fontSize:11,color:"#6a5020",marginBottom:10,marginTop:-6}}>📅 {dowOf(vDate)}{autoEvent(vDate)&&<span style={{marginLeft:8,color:"#8a6030"}}>· {autoEvent(vDate)}</span>}</div>}
+        <F label="Valor gasto (R$) *" value={vAmt} type="number" onChange={setVAmt} placeholder="Ex: 380"/>
+        <div style={{marginBottom:13}}>
+          <label style={{display:"block",fontSize:9,letterSpacing:2.5,color:"#6a5e40",textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}}>Estilo Musical do Evento</label>
+          <TagRow options={STYLES} value={vEv} onChange={setVEv}/>
+          {vEv&&<div style={{fontSize:11,color:"#8a6020",marginTop:6}}>Selecionado: {vEv}</div>}
+        </div>
+        <F label="Promoter responsável" value={vPro} onChange={setVPro} placeholder="Ex: Carlos"/>
+        <F label="Observações" value={vNt} onChange={setVNt} placeholder="Mesa reservada..."/>
+        {data.customers.length===0&&<div style={{fontSize:11,color:"#8a3030",marginBottom:10}}>⚠ Cadastre um cliente primeiro.</div>}
+        <GB onClick={addVisit} disabled={!vCid||!vDate||!vAmt}>Salvar visita</GB>
+      </div>}
+    </Card>}
+
+    {/* EXCEL */}
+    {view==="excel"&&<div>
+      <Lbl>Importar via Excel / CSV</Lbl>
+      {!isMgr?<Card><div style={{textAlign:"center",padding:"20px",color:"#6a4040",fontSize:13}}>🔒 Acesso restrito</div></Card>:<div>
+        <Card s={{marginBottom:10,padding:"10px 14px",background:"#0a0a0a",borderColor:"#2a2010"}}>
+          <div style={{fontSize:11,color:"#6a5020",lineHeight:1.7}}>
+            ℹ Clientes com o <b>mesmo nome</b> não são duplicados — a nova visita é somada ao perfil existente.<br/>
+            A <b>data do evento</b> define o dia da semana corretamente.
+          </div>
+        </Card>
+        {(imp.step==="idle"||imp.step==="done")&&<Card s={{textAlign:"center",padding:"28px 20px"}}>
+          <div style={{fontSize:30,marginBottom:10}}>📂</div>
+          <div style={{fontSize:13,color:"#8a7a58",marginBottom:16}}>Envie um <b style={{color:"#c8a030"}}>.xlsx</b> ou <b style={{color:"#c8a030"}}>.csv</b></div>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={readFile} style={{display:"none"}}/>
+          <GB onClick={()=>fileRef.current?.click()}>Escolher arquivo</GB>
+          {imp.step==="done"&&imp.log&&<div style={{marginTop:16,fontSize:12,color:"#6aaa6a",background:"#0f1a0f",border:"1px solid #2a4a2a",borderRadius:7,padding:"10px 14px",textAlign:"left",whiteSpace:"pre-line"}}>{imp.log}</div>}
+          {imp.err&&<div style={{marginTop:12,fontSize:11,color:"#aa4a4a"}}>{imp.err}</div>}
+        </Card>}
+        {imp.step==="mapping"&&<Mapper
+          headers={imp.headers} rows={imp.rows} eventDate={imp.eventDate}
+          onEventDate={d=>setImp(p=>({...p,eventDate:d}))}
+          onConfirm={doImport}
+          onCancel={()=>{setImp(p=>({...p,step:"idle"}));if(fileRef.current)fileRef.current.value="";}}
+        />}
+      </div>}
+    </div>}
+
+    {/* ANÁLISE */}
+    {view==="analise"&&<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <Lbl>Análise de Dados</Lbl>
+        <span style={{fontSize:10,color:"#4a4030"}}>{data.customers.length} clientes · {data.visits.length} visitas</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14}}>
+        {PERIODS.map(p=>{const rev=pRevs[p.k]||0,active=aiMode===p.k;return(
+          <button key={p.k} onClick={()=>setAiMode(p.k)} style={{padding:"10px 6px",borderRadius:7,textAlign:"center",border:"1px solid "+(active?"#c8a030":"#1e1e1e"),background:active?"#15100a":"#0d0d0d",color:active?"#c8a030":"#4a4a4a",cursor:"pointer",fontFamily:"Georgia,serif"}}>
+            <div style={{fontSize:12,marginBottom:3}}>{p.l}</div>
+            <div style={{fontSize:9,color:active?"#8a6020":"#3a3a3a"}}>{fmt(rev)}</div>
+          </button>);})}
+      </div>
+      <GB onClick={()=>setAiText(analyze(data.customers,data.visits,period.d))} disabled={!data.visits.length} s={{fontSize:13,marginBottom:18}}>✦ Gerar análise completa</GB>
+      {!data.visits.length&&<div style={{textAlign:"center",color:"#4a4a4a",fontSize:12}}>Sem dados para analisar.</div>}
+      {aiText&&<Card s={{borderColor:"#2a2010"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <Lbl c="#6a5020">📊 Análise {period.l}</Lbl>
+          <button onClick={()=>exportPDF("Análise "+period.l,aiText)} style={{padding:"5px 12px",background:"none",border:"1px solid #3a2a10",borderRadius:6,color:"#8a6020",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:10}}>⬇ PDF</button>
+        </div>
+        <div style={{fontSize:13,lineHeight:1.85,color:"#c8c0a8",whiteSpace:"pre-wrap"}}>{aiText}</div>
+      </Card>}
+    </div>}
+
+    {/* BASE ANIVERSARIOS */}
+    {view==="baseaniv"&&<div>
+      <Lbl>Importar Base de Aniversários</Lbl>
+      {!isMgr?<Card><div style={{textAlign:"center",padding:"20px",color:"#6a4040",fontSize:13}}>Acesso restrito</div></Card>:<div>
+        <Card s={{marginBottom:10,padding:"12px 14px",background:"#0a0a0a",borderColor:"#2a2010"}}>
+          <div style={{fontSize:11,color:"#6a5020",lineHeight:1.8}}>
+            Base <b style={{color:"#c8a030"}}>independente</b> da base de eventos.<br/>
+            Sobe planilha com <b style={{color:"#c8a030"}}>Nome</b> e <b style={{color:"#c8a030"}}>Data de Aniversário</b> — sem limite de linhas.<br/>
+            Aparece na aba Aniversários separado da base de eventos.
+          </div>
+        </Card>
+        <Card s={{marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <Lbl>Base atual</Lbl>
+            <span style={{fontSize:11,color:"#4a4030"}}>{(data.bdayContacts||[]).length} contatos</span>
+          </div>
+          {isAdmin&&(data.bdayContacts||[]).length>0&&<GH onClick={()=>{if(window.confirm("Limpar toda a base de aniversários?"))save({...data,bdayContacts:[]});}}>Limpar base de aniversários</GH>}
+        </Card>
+        <BdayImporter onImport={(nc)=>{
+          const ex=data.bdayContacts||[];const merged=[...ex];let added=0,updated=0;
+          nc.forEach(c=>{const idx=merged.findIndex(x=>x.name.toLowerCase().trim()===c.name.toLowerCase().trim());
+            if(idx>=0){if(c.bday&&!merged[idx].bday){merged[idx]={...merged[idx],bday:c.bday};updated++;}}
+            else{merged.push(c);added++;}
+          });
+          save({...data,bdayContacts:merged});
+          tk(added+" adicionados, "+updated+" atualizados");
+        }}/>
+      </div>}
+    </div>}
+
+    {/* EXPORTAR */}
+    {view==="exportar"&&<div>
+      <Lbl>📤 Exportar Contatos</Lbl>
+      <div style={{fontSize:11,color:"#4a4030",marginBottom:16,lineHeight:1.7}}>
+        Exporta uma lista com nome, telefone e segmento RFM em formato .txt — pronto pra importar no WhatsApp ou disparador de mensagens.
+      </div>
+      {/* Style filter for export */}
+      <div style={{marginBottom:14}}>
+        <Lbl>Filtrar por Estilo Musical</Lbl>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["Todos os estilos",...STYLES].map(s=>{
+            const active=exportStyle===(s==="Todos os estilos"?"":s);
+            return<button key={s} onClick={()=>setExportStyle(s==="Todos os estilos"?"":s)}
+              style={{padding:"5px 12px",borderRadius:20,border:"1px solid "+(active?"#c8a030":"#2a2a2a"),background:active?"#1a1500":"transparent",color:active?"#c8a030":"#6a6a6a",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:11}}>
+              {s}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{display:"grid",gap:8}}>
+        {["Todos","VIP","Fiel","Potencial","Em Risco","Perdido"].map(seg=>{
+          const rfm=computeRFM(data.customers,data.visits);
+          const filtered=rfm.filter(c=>(seg==="Todos"||c.segment===seg)&&c.phone&&(!exportStyle||c.style===exportStyle));
+          const count=filtered.length;
+          return<div key={seg} style={{background:"#0f0f0f",border:"1px solid "+(SEGS[seg]||"#2a2010"),borderRadius:9,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:14,color:SEGS[seg]||"#c8a030",fontWeight:600,marginBottom:3}}>{seg}</div>
+              <div style={{fontSize:11,color:"#4a4a4a"}}>{count} cliente{count!==1?"s":""} com telefone{exportStyle?" · "+exportStyle:""}</div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <GB onClick={()=>exportContactsFiltered(filtered,seg+(exportStyle?" "+exportStyle:""))} disabled={count===0} s={{width:"auto",padding:"8px 14px",fontSize:11}}>Exportar</GB>
+              <GB onClick={()=>exportSplit(filtered,seg+(exportStyle?" "+exportStyle:"").toLowerCase().replace(/\s/g,"-"))} disabled={count<3} s={{width:"auto",padding:"8px 14px",fontSize:11,borderColor:"#5a8a5a",color:"#6aaa6a"}} title="Divide em 3 arquivos para evitar bloqueio no WhatsApp">÷ 3</GB>
+            </div>
+          </div>;
+        })}
+      </div>
+      <div style={{marginTop:20,fontSize:11,color:"#3a3a3a",lineHeight:1.7}}>
+        <b style={{color:"#6a6a6a"}}>Exportar</b> — gera um único arquivo com todos os contatos.<br/>
+        <b style={{color:"#6aaa6a"}}>÷ 3</b> — divide em 3 arquivos iguais para 3 pessoas dispararem no WhatsApp sem risco de bloqueio da Meta.<br/>
+        Formato: Nome · Telefone · Segmento · Estilo · Total gasto
+      </div>
+    </div>}
+
+
+    {/* BRIEF SEMANAL */}
+    {view==="brief"&&<div>
+      <Lbl>📋 Brief Semanal</Lbl>
+      {(()=>{
+        const hoje=new Date();
+        const semanaStr=`Semana de ${hoje.toLocaleDateString("pt-BR",{day:"2-digit",month:"long"})}`;
+        const cut7=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+        const cut14=new Date(Date.now()-14*86400000).toISOString().slice(0,10);
+        const visWeek=data.visits.filter(v=>v.date>=cut7);
+        const visPrev=data.visits.filter(v=>v.date>=cut14&&v.date<cut7);
+        const revWeek=visWeek.reduce((s,v)=>s+v.amount,0);
+        const revPrev=visPrev.reduce((s,v)=>s+v.amount,0);
+        const growth=revPrev>0?(((revWeek-revPrev)/revPrev)*100).toFixed(1):null;
+        const novos=data.customers.filter(c=>c.created&&c.created>=cut7);
+        const pColor=PROMOTER_COLORS[briefPromoter];
+
+        // Clientes do promoter selecionado
+        const myRfm=rfmData.filter(c=>getPromoter(c.id)===briefPromoter);
+        // VIPs: todos, toda semana — relacionamento contínuo
+        const vips=myRfm.filter(c=>c.segment==="VIP").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Fiéis: todos, toda semana — manter hábito
+        const fieis=myRfm.filter(c=>c.segment==="Fiel").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Potenciais: todos, toda semana — janela curta
+        const potenciais=myRfm.filter(c=>c.segment==="Potencial").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Em Risco: todos, com alerta — janela de recuperação
+        const emRisco=myRfm.filter(c=>c.segment==="Em Risco").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        // Perdidos: fora do Brief
+
+        // Predição do promoter
+        const predicoes=data.customers.filter(c=>getPromoter(c.id)===briefPromoter).map(c=>{
+          const vs=data.visits.filter(v=>v.cid===c.id).sort((a,b)=>a.date.localeCompare(b.date));
+          if(vs.length<2)return null;
+          const intervals=[];
+          for(let i=1;i<vs.length;i++){const d1=new Date(vs[i-1].date+"T12:00:00");const d2=new Date(vs[i].date+"T12:00:00");intervals.push(Math.floor((d2-d1)/86400000));}
+          const avgInterval=Math.round(intervals.reduce((s,v)=>s+v,0)/intervals.length);
+          const lastVisit=vs[vs.length-1].date;const daysSince=dAgo(lastVisit);const daysOverdue=daysSince-avgInterval;
+          const rfm=rfmData.find(x=>x.id===c.id);
+          return{...c,avgInterval,daysSince,daysOverdue,lastVisit,total:rfm?.total||0,segment:rfm?.segment||"Perdido",color:rfm?.color||"#5a2020"};
+        }).filter(c=>c&&c.daysOverdue>0).sort((a,b)=>b.daysOverdue-a.daysOverdue).slice(0,8);
+
+        // Aniversários da semana do promoter
+        const bdayWeek=[
+          ...data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===briefPromoter),
+          ...(data.bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===briefPromoter)
+        ].sort((a,b)=>dUntilBday(a.bday)-dUntilBday(b.bday));
+
+        function ClientCard({c}){
+          const{motivos,acao}=rfmExplain(c.R||1,c.F||1,c.M||1,c.count,c.last,c.total,c.segment,c.avgTicket||0,c.vis30||0);
+          return<div style={{padding:"10px 0",borderBottom:"1px solid #1a1a1a"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                  <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#f0e8c0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</span>
+                  {c.segment&&<Bdg segment={c.segment} color={c.color}/>}
+                </div>
+                {motivos.slice(0,2).map((m,i)=><div key={i} style={{fontSize:11,color:"#6a5030"}}>· {m}</div>)}
+                <div style={{fontSize:10,color:"#4a3a1a",fontStyle:"italic",marginTop:4,lineHeight:1.5}}>{acao[c.segment]}</div>
+              </div>
+              <WaBtn phone={c.phone} s={{marginLeft:10,flexShrink:0}} onLog={()=>logWa(briefPromoter,c.id,c.name)}/>
+            </div>
+          </div>;
+        }
+
+        function exportPromoterExcel(p){
+          const pr=rfmData.filter(c=>getPromoter(c.id)===p);
+          const vips=pr.filter(c=>c.segment==="VIP");
+          const fieis=pr.filter(c=>c.segment==="Fiel");
+          const risco=pr.filter(c=>c.segment==="Em Risco");
+          const pot=pr.filter(c=>c.segment==="Potencial");
+          const bdays=[
+            ...data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===p),
+            ...(data.bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===p)
+          ];
+          const ACTIONS={VIP:"Relacionamento VIP — reserva mesa, avisa antes do evento.",Fiel:"Reconhece a presença. Um gesto simples cria lealdade.",Potencial:"Criar o hábito agora. Convida pro próximo evento.","Em Risco":"Chama agora, mensagem direta. Não deixa passar mais tempo.",Perdido:"Se voltar por conta própria, acolhe bem."};
+          const h=["Nome","Telefone","Segmento","Ausente (dias)","Ticket Médio","Total","Visitas","O que fazer"];
+          const toRow=c=>[c.name||"",c.phone||"",c.segment||"",dAgo(c.last),fmt(c.avgTicket||0),fmt(c.total||0),c.count||0,ACTIONS[c.segment]||""];
+          const wb=XLSX.utils.book_new();
+          if(vips.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([h,...vips.map(toRow)]),"👑 VIPs");
+          if(fieis.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([h,...fieis.map(toRow)]),"🏅 Fiéis Sumiram");
+          if(risco.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([h,...risco.map(toRow)]),"⚠️ Em Risco");
+          if(pot.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([h,...pot.map(toRow)]),"🌱 Potenciais");
+          if(bdays.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([["Nome","Telefone","Aniversário","Dias até"],...bdays.map(c=>[c.name||"",c.phone||"",fmtBday(c.bday),dUntilBday(c.bday)])]),"🎂 Aniversários");
+          if(!wb.SheetNames.length){alert("Nada pra "+p+" essa semana.");return;}
+          const dt=hoje.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}).replace("/","-");
+          XLSX.writeFile(wb,`Brief_${p}_${dt}.xlsx`);
+        }
+
+        return <div>
+          {/* Resumo geral da semana */}
+          <Card s={{marginBottom:12,borderColor:"#2a2010",background:"#0e0c06"}}>
+            <div style={{fontSize:11,color:"#8a6020",marginBottom:10,letterSpacing:1}}>{semanaStr}</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
+              {[["Receita 7d",fmt(revWeek)],["vs semana ant.",growth!==null?(growth>0?"▲ +":"▼ ")+growth+"%":"—"],["Visitas",visWeek.length],["Novos clientes",novos.length]].map(([l,v])=>
+                <div key={l} style={{background:"#0a0a08",borderRadius:7,padding:"9px 12px"}}>
+                  <div style={{fontSize:9,color:"#5a4828",textTransform:"uppercase",letterSpacing:2,fontFamily:"Georgia,serif",marginBottom:3}}>{l}</div>
+                  <div style={{fontSize:14,color:"#c8a030",fontWeight:700}}>{v}</div>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Seleção de promoter */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:12}}>
+            {PROMOTERS.map(p=>{
+              const pc=PROMOTER_COLORS[p];
+              const myC=rfmData.filter(c=>getPromoter(c.id)===p);
+              const ativos=myC.filter(c=>c.segment==="VIP"||c.segment==="Fiel"||c.segment==="Potencial"||c.segment==="Em Risco").length;
+              const active=briefPromoter===p;
+              const locked=isPromoter&&p!==promoterName;
+              return<button key={p} onClick={()=>!locked&&setBriefPromoter(p)}
+                style={{padding:"10px 6px",borderRadius:8,border:"1px solid "+(active?pc:"#2a2a2a"),background:active?pc+"18":"#0d0d0d",color:active?pc:locked?"#2a2a2a":"#5a5a5a",cursor:locked?"default":"pointer",fontFamily:"Georgia,serif",textAlign:"center",transition:"all 0.15s",opacity:locked?0.35:1}}>
+                <div style={{fontSize:14,fontWeight:700,marginBottom:2}}>{p}</div>
+                <div style={{fontSize:9,color:active?pc+"bb":"#3a3a3a"}}>{ativos} cliente{ativos!==1?"s":""}</div>
+              </button>;
+            })}
+          </div>
+
+          {/* Export do promoter */}
+          <button onClick={()=>exportPromoterExcel(briefPromoter)}
+            style={{width:"100%",padding:"9px",background:"#1a1500",border:"1px solid "+pColor,borderRadius:8,color:pColor,fontFamily:"Georgia,serif",fontSize:11,cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            📊 Exportar lista de {briefPromoter} — Excel
+          </button>
+
+          {/* Aniversários do promoter */}
+          {bdayWeek.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a2a"}}>
+            <Lbl c="#8a5a8a">🎂 Aniversários esta semana — {briefPromoter}</Lbl>
+            {bdayWeek.map(c=><div key={c.id||c.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
+              <div>
+                <div style={{fontSize:13,color:"#e0d0f0",fontWeight:600}}>{c.name}</div>
+                <div style={{fontSize:11,color:"#6a4a6a"}}>{fmtBday(c.bday)} · {dUntilBday(c.bday)===0?"Hoje!":dUntilBday(c.bday)+"d"} — Chama antes do evento com parabéns</div>
+              </div>
+              <WaBtn phone={c.phone} onLog={()=>logWa(briefPromoter,c.id||c.name,c.name)}/>
+            </div>)}
+          </Card>}
+
+          {/* VIPs */}
+          {vips.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a0a"}}>
+            <Lbl c="#b8860b">👑 VIPs — {briefPromoter} ({vips.length})</Lbl>
+            {vips.map(c=><ClientCard key={c.id} c={c}/>)}
+          </Card>}
+
+          {/* Fiéis */}
+          {fieis.length>0&&<Card s={{marginBottom:12,borderColor:"#1a3a2a"}}>
+            <Lbl c="#2a9a5a">🏅 Fiéis — {briefPromoter} ({fieis.length})</Lbl>
+            {fieis.map(c=><ClientCard key={c.id} c={c}/>)}
+          </Card>}
+
+          {/* Em Risco */}
+          {emRisco.length>0&&<Card s={{marginBottom:12,borderColor:"#2a1a10"}}>
+            <Lbl c="#c87828">⚠️ Em Risco — {briefPromoter}</Lbl>
+            {emRisco.map(c=><ClientCard key={c.id} c={c}/>)}
+          </Card>}
+
+          {/* Potenciais */}
+          {potenciais.length>0&&<Card s={{marginBottom:12,borderColor:"#1a2a3a"}}>
+            <Lbl c="#2a7aaa">🌱 Potenciais — {briefPromoter}</Lbl>
+            {potenciais.map(c=><ClientCard key={c.id} c={c}/>)}
+          </Card>}
+
+          {/* Predição de retorno */}
+          {predicoes.length>0&&<Card s={{marginBottom:12,borderColor:"#1a1a2a"}}>
+            <Lbl c="#7a7aaa">🔮 Predição de retorno — {briefPromoter}</Lbl>
+            {predicoes.map(c=><div key={c.id} style={{padding:"8px 0",borderBottom:"1px solid #1a1a1a"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+                    <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#f0e0b0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</span>
+                    <Bdg segment={c.segment} color={c.color}/>
+                  </div>
+                  <div style={{fontSize:11,color:"#6a5030"}}>
+                    Vinha a cada <b style={{color:"#c8a030"}}>{c.avgInterval}d</b> · ausente <b style={{color:"#c87828"}}>{c.daysSince}d</b> · <b style={{color:"#aa4a2a"}}>{c.daysOverdue}d atrasado</b>
+                  </div>
+                </div>
+                <WaBtn phone={c.phone} s={{marginLeft:10}} onLog={()=>logWa(briefPromoter,c.id,c.name)}/>
+              </div>
+            </div>)}
+          </Card>}
+
+          {vips.length===0&&fieis.length===0&&emRisco.length===0&&potenciais.length===0&&predicoes.length===0&&bdayWeek.length===0&&
+            <Card><div style={{textAlign:"center",padding:"24px",color:"#3a3a3a",fontSize:13}}>Nada pra fazer essa semana, {briefPromoter}. 🎯</div></Card>}
+        </div>;
+      })()}
+    </div>}
+
+        {/* PREDIÇÃO DE RETORNO */}
+    {view==="predicao"&&<div>
+      <Lbl>🔮 Predição de Retorno</Lbl>
+      <div style={{fontSize:11,color:"#4a4030",marginBottom:14,lineHeight:1.7}}>
+        Baseado no intervalo médio entre visitas de cada cliente, o sistema estima quem está atrasado para voltar.
+      </div>
+      {(()=>{
+        const predictions=data.customers.map(c=>{
+          const vs=data.visits.filter(v=>v.cid===c.id).sort((a,b)=>a.date.localeCompare(b.date));
+          if(vs.length<2)return null;
+          // Calculate average interval between visits
+          const intervals=[];
+          for(let i=1;i<vs.length;i++){
+            const d1=new Date(vs[i-1].date+"T12:00:00");
+            const d2=new Date(vs[i].date+"T12:00:00");
+            intervals.push(Math.floor((d2-d1)/86400000));
+          }
+          const avgInterval=Math.round(intervals.reduce((s,v)=>s+v,0)/intervals.length);
+          const lastVisit=vs[vs.length-1].date;
+          const daysSince=dAgo(lastVisit);
+          const daysOverdue=daysSince-avgInterval;
+          const rfm=rfmData.find(x=>x.id===c.id);
+          return{...c,avgInterval,daysSince,daysOverdue,lastVisit,total:rfm?.total||0,segment:rfm?.segment||"Perdido",color:rfm?.color||"#5a2020"};
+        }).filter(Boolean).sort((a,b)=>b.daysOverdue-a.daysOverdue);
+
+        const atrasados=predictions.filter(c=>c.daysOverdue>0);
+        const naHora=predictions.filter(c=>c.daysOverdue>=-5&&c.daysOverdue<=0);
+
+        return <div>
+          {atrasados.length>0&&<div style={{marginBottom:16}}>
+            <div style={{fontSize:9,letterSpacing:2,color:"#aa4a2a",textTransform:"uppercase",marginBottom:10,fontFamily:"Georgia,serif"}}>🔴 Atrasados para voltar ({atrasados.length})</div>
+            {atrasados.map(c=><div key={c.id} style={{background:"#0f0f0f",border:"1px solid #2a1a0a",borderRadius:9,padding:"12px 16px",marginBottom:7}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                    <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#f0e0b0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</span>
+                    <Bdg segment={c.segment} color={c.color}/>
+                    <WaBtn phone={c.phone}/>
+                  </div>
+                  <div style={{fontSize:11,color:"#6a5030"}}>
+                    Vinha a cada <b style={{color:"#c8a030"}}>{c.avgInterval}d</b> · ausente <b style={{color:"#c87828"}}>{c.daysSince}d</b> · <b style={{color:"#aa4a2a"}}>{c.daysOverdue}d atrasado</b>
+                  </div>
+                </div>
+                <div style={{textAlign:"right",marginLeft:10}}>
+                  <div style={{fontSize:12,color:"#c8a030",fontWeight:600}}>{fmt(c.total)}</div>
+                </div>
+              </div>
+            </div>)}
+          </div>}
+
+          {naHora.length>0&&<div style={{marginBottom:16}}>
+            <div style={{fontSize:9,letterSpacing:2,color:"#4a8a4a",textTransform:"uppercase",marginBottom:10,fontFamily:"Georgia,serif"}}>🟢 Deve voltar em breve ({naHora.length})</div>
+            {naHora.map(c=><div key={c.id} style={{background:"#0f0f0f",border:"1px solid #1a2a1a",borderRadius:9,padding:"12px 16px",marginBottom:7}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                    <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#d0f0c8",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</span>
+                    <WaBtn phone={c.phone}/>
+                  </div>
+                  <div style={{fontSize:11,color:"#4a6a4a"}}>
+                    Vinha a cada <b style={{color:"#c8a030"}}>{c.avgInterval}d</b> · ausente {c.daysSince}d · deve voltar em breve
+                  </div>
+                </div>
+                <div style={{fontSize:12,color:"#c8a030",fontWeight:600,marginLeft:10}}>{fmt(c.total)}</div>
+              </div>
+            </div>)}
+          </div>}
+
+          {predictions.length===0&&<Card><div style={{textAlign:"center",padding:"24px",color:"#3a3a3a",fontSize:13}}>Precisa de pelo menos 2 visitas por cliente para calcular predição.<br/>Continue alimentando a base.</div></Card>}
+        </div>;
+      })()}
+    </div>}
+
+    {/* PERFORMANCE */}
+    {view==="performance"&&isAdmin&&<div>
+      <Lbl>📊 Performance dos Promoters</Lbl>
+      {(()=>{
+        const logs=data.waLogs||[];
+        const cut7=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+        const cut30=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+        const logsWeek=logs.filter(l=>l.date>=cut7);
+        const logs30=logs.filter(l=>l.date>=cut30);
+        const hoje=new Date().toISOString().slice(0,10);
+        const logsHoje=logs.filter(l=>l.date===hoje);
+
+        function StatBlock({title,logsSet}){
+          return<Card s={{marginBottom:12}}>
+            <div style={{fontSize:9,letterSpacing:3,color:"#6a5020",textTransform:"uppercase",marginBottom:12,fontFamily:"Georgia,serif"}}>{title}</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+              {PROMOTERS.map(p=>{
+                const n=logsSet.filter(l=>l.promoter===p).length;
+                const pc=PROMOTER_COLORS[p];
+                return<div key={p} style={{background:"#0a0a08",borderRadius:8,padding:"10px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:11,color:pc,fontWeight:700,marginBottom:2}}>{p}</div>
+                  <div style={{fontSize:22,color:pc,fontWeight:700}}>{n}</div>
+                  <div style={{fontSize:9,color:"#4a4028"}}>clique{n!==1?"s":""}</div>
+                </div>;
+              })}
+            </div>
+            {PROMOTERS.map(p=>{
+              const mine=logsSet.filter(l=>l.promoter===p).sort((a,b)=>b.ts.localeCompare(a.ts));
+              if(!mine.length)return null;
+              const pc=PROMOTER_COLORS[p];
+              return<div key={p} style={{marginBottom:12}}>
+                <div style={{fontSize:10,color:pc,letterSpacing:2,textTransform:"uppercase",marginBottom:6,fontFamily:"Georgia,serif"}}>{p} — {mine.length} chamada{mine.length!==1?"s":""}</div>
+                {mine.slice(0,10).map((l,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #111"}}>
+                  <div style={{fontSize:12,color:"#b0a080"}}>{l.clientName}</div>
+                  <div style={{fontSize:10,color:"#4a4028"}}>{new Date(l.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})} {l.date!==hoje?"· "+l.date.slice(5).split("-").reverse().join("/"):""}</div>
+                </div>)}
+                {mine.length>10&&<div style={{fontSize:10,color:"#3a3a3a",textAlign:"center",padding:"4px"}}>+{mine.length-10} mais</div>}
+              </div>;
+            })}
+          </Card>;
+        }
+
+        return<div>
+          <StatBlock title="Hoje" logsSet={logsHoje}/>
+          <StatBlock title="Últimos 7 dias" logsSet={logsWeek}/>
+          <StatBlock title="Últimos 30 dias" logsSet={logs30}/>
+          {logs.length===0&&<Card><div style={{textAlign:"center",padding:"24px",color:"#3a3a3a",fontSize:13}}>Nenhum clique registrado ainda.<br/>Os dados aparecem assim que os promoters começarem a usar o Brief.</div></Card>}
+        </div>;
+      })()}
+    </div>}
+
+    </div>
+  </div>);
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
