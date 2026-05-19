@@ -481,6 +481,15 @@ function App(){
     return ()=>{if(unsub)unsub();};
   },[dbOk]);
 
+  // Redirect promoter to brief on any role change (including session restore)
+  useEffect(()=>{
+    if(role&&role.startsWith("promoter_")){
+      const name=role.split("_")[1];
+      setBriefPromoter(name);
+      setView("brief");
+    }
+  },[role]);
+
   function save(nd){setData(nd);window._db&&window._db.save(nd);}
   function tk(msg,err){setToast({msg,err:!!err});setTimeout(()=>setToast({msg:"",err:false}),2500);}
 
