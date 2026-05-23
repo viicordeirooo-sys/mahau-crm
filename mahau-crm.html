@@ -22,18 +22,37 @@
   const app = initializeApp(cfg);
   const db = getFirestore(app);
   const REF = doc(db, "mahau", "crm");
-  const BDAY_REF = doc(db, "mahau", "bdayContacts");
+  const CHUNK=5000;
   window._db = {
     load: async () => { try { const s=await getDoc(REF); return s.exists()?s.data():null; } catch { return null; } },
-    save: async (d) => {
-      // Strip bdayContacts from main doc — stored separately
-      const {bdayContacts,...main}=d;
-      try { await setDoc(REF,main); return true; } catch { return false; }
+    save: async (d) => { try { await setDoc(REF,d); return true; } catch { return false; } },
+    saveBday: async (contacts) => {
+      try {
+        const n=Math.max(1,Math.ceil(contacts.length/CHUNK));
+        for(let i=0;i<n;i++){
+          const chunk=contacts.slice(i*CHUNK,(i+1)*CHUNK);
+          await setDoc(doc(db,"mahau","bday_"+i),{contacts:chunk,chunk:i,total:n});
+        }
+        // Store metadata with total chunks
+        await setDoc(doc(db,"mahau","bday_meta"),{totalChunks:n,count:contacts.length});
+        return true;
+      } catch(e){console.error("saveBday",e);return false;}
     },
-    saveBday: async (contacts) => { try { await setDoc(BDAY_REF,{contacts}); return true; } catch(e) { console.error("saveBday error",e); return false; } },
-    loadBday: async () => { try { const s=await getDoc(BDAY_REF); return s.exists()?(s.data().contacts||[]):null; } catch { return null; } },
+    loadBday: async () => {
+      try {
+        const meta=await getDoc(doc(db,"mahau","bday_meta"));
+        if(!meta.exists())return [];
+        const n=meta.data().totalChunks||1;
+        const all=[];
+        for(let i=0;i<n;i++){
+          const s=await getDoc(doc(db,"mahau","bday_"+i));
+          if(s.exists())all.push(...(s.data().contacts||[]));
+        }
+        return all;
+      } catch(e){console.error("loadBday",e);return [];}
+    },
     sub: (cb) => onSnapshot(REF, s=>{ if(s.exists()) cb(s.data()); }),
-    subBday: (cb) => onSnapshot(BDAY_REF, s=>{ if(s.exists()) cb(s.data().contacts||[]); })
+    subBday: (cb) => { /* real-time not used for large bday base */ return ()=>{}; }
   };
   window._dbReady = true;
   window.dispatchEvent(new Event("dbReady"));
