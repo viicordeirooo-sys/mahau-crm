@@ -22,10 +22,18 @@
   const app = initializeApp(cfg);
   const db = getFirestore(app);
   const REF = doc(db, "mahau", "crm");
+  const BDAY_REF = doc(db, "mahau", "bdayContacts");
   window._db = {
     load: async () => { try { const s=await getDoc(REF); return s.exists()?s.data():null; } catch { return null; } },
-    save: async (d) => { try { await setDoc(REF,d); return true; } catch { return false; } },
-    sub: (cb) => onSnapshot(REF, s=>{ if(s.exists()) cb(s.data()); })
+    save: async (d) => {
+      // Strip bdayContacts from main doc — stored separately
+      const {bdayContacts,...main}=d;
+      try { await setDoc(REF,main); return true; } catch { return false; }
+    },
+    saveBday: async (contacts) => { try { await setDoc(BDAY_REF,{contacts}); return true; } catch(e) { console.error("saveBday error",e); return false; } },
+    loadBday: async () => { try { const s=await getDoc(BDAY_REF); return s.exists()?(s.data().contacts||[]):null; } catch { return null; } },
+    sub: (cb) => onSnapshot(REF, s=>{ if(s.exists()) cb(s.data()); }),
+    subBday: (cb) => onSnapshot(BDAY_REF, s=>{ if(s.exists()) cb(s.data().contacts||[]); })
   };
   window._dbReady = true;
   window.dispatchEvent(new Event("dbReady"));
@@ -49,7 +57,7 @@ const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","A
 const STYLES = ["Funk","Sertanejo","Eletrônico","Pagode","Pop","Axé","Forró","Reggaeton","Hip Hop","Rock","MPB","Outro"];
 const SEGS = {VIP:"#b8860b",Fiel:"#2a6a3a",Potencial:"#1a3a6a","Em Risco":"#6a3a10",Perdido:"#5a2020"};
 const PERIODS = [{k:"mensal",l:"Mensal",d:30},{k:"trimestral",l:"Trimestral",d:90},{k:"semestral",l:"Semestral",d:180},{k:"anual",l:"Anual",d:365}];
-const EMPTY = {customers:[],visits:[],goal:0,adminPin:"",managerPin:"",promoterPins:{Ygor:"",Matheus:"",Mahau:""},configured:false,bdayContacts:[],waLogs:[]};
+const EMPTY = {customers:[],visits:[],goal:0,adminPin:"",managerPin:"",promoterPins:{Ygor:"",Matheus:"",Mahau:""},configured:false,waLogs:[]};
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
@@ -441,6 +449,7 @@ function App(){
   const [toast,setToast]=useState({msg:"",err:false});
   const [goalInput,setGoalInput]=useState("");
   const [briefPromoter,setBriefPromoter]=useState("Ygor");
+  const [bdayContacts,setBdayContacts]=useState([]);
 
   // Auth — REQUIRED for any data
   const SESSION_KEY="mahau_auth";
@@ -485,8 +494,12 @@ function App(){
       setLoaded(true);
       if(!m.configured)setFirstSetup(true);
     });
+    window._db.loadBday().then(contacts=>{
+      if(contacts)setBdayContacts(contacts);
+    });
     const unsub=window._db.sub(d=>setData(Object.assign({},EMPTY,d)));
-    return ()=>{if(unsub)unsub();};
+    const unsubBday=window._db.subBday(contacts=>setBdayContacts(contacts));
+    return ()=>{if(unsub)unsub();if(unsubBday)unsubBday();};
   },[dbOk]);
 
   // Redirect promoter to brief on any role change (including session restore)
@@ -702,7 +715,7 @@ function App(){
   const period=PERIODS.find(p=>p.k===aiMode)||PERIODS[0];
   const pRevs={};PERIODS.forEach(p=>{pRevs[p.k]=data.visits.filter(v=>v.date>=new Date(Date.now()-p.d*86400000).toISOString().slice(0,10)).reduce((s,v)=>s+v.amount,0);});
   const bdayByMo=MONTHS.map((_,mi)=>data.customers.filter(c=>bdayMonth(c.bday)===mi).sort((a,b)=>bdayDay(a.bday)-bdayDay(b.bday)));
-  const bdayByMoTotal=MONTHS.map((_,mi)=>(data.customers.filter(c=>bdayMonth(c.bday)===mi).length)+((data.bdayContacts||[]).filter(c=>bdayMonth(c.bday)===mi).length));
+  const bdayByMoTotal=MONTHS.map((_,mi)=>(data.customers.filter(c=>bdayMonth(c.bday)===mi).length)+((bdayContacts||[]).filter(c=>bdayMonth(c.bday)===mi).length));
 
   const selCust=data.customers.find(c=>c.id===selId);
   const selRfm=rfmData.find(c=>c.id===selId);
@@ -924,7 +937,7 @@ function App(){
       </div>
       {(()=>{
         const evList=bdayByMo[bdayMo];
-        const bcList=(data.bdayContacts||[]).filter(c=>bdayMonth(c.bday)===bdayMo).sort((a,b)=>bdayDay(a.bday)-bdayDay(b.bday));
+        const bcList=(bdayContacts||[]).filter(c=>bdayMonth(c.bday)===bdayMo).sort((a,b)=>bdayDay(a.bday)-bdayDay(b.bday));
         const tot=evList.length+bcList.length;
         return <div>
           <div style={{fontSize:12,color:"#5a4828",marginBottom:12,display:"flex",gap:12,flexWrap:"wrap"}}>
@@ -1226,18 +1239,20 @@ function App(){
         <Card s={{marginBottom:12}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <Lbl>Base atual</Lbl>
-            <span style={{fontSize:11,color:"#4a4030"}}>{(data.bdayContacts||[]).length} contatos</span>
+            <span style={{fontSize:11,color:"#4a4030"}}>{(bdayContacts||[]).length} contatos</span>
           </div>
-          {isAdmin&&(data.bdayContacts||[]).length>0&&<GH onClick={()=>{if(window.confirm("Limpar toda a base de aniversários?"))save({...data,bdayContacts:[]});}}>Limpar base de aniversários</GH>}
+          {isAdmin&&(bdayContacts||[]).length>0&&<GH onClick={()=>{if(window.confirm("Limpar toda a base de aniversários?"))window._db.saveBday([]).then(()=>setBdayContacts([]));}}>Limpar base de aniversários</GH>}
         </Card>
         <BdayImporter onImport={(nc)=>{
-          const ex=data.bdayContacts||[];const merged=[...ex];let added=0,updated=0;
+          const ex=bdayContacts||[];const merged=[...ex];let added=0,updated=0;
           nc.forEach(c=>{const idx=merged.findIndex(x=>x.name.toLowerCase().trim()===c.name.toLowerCase().trim());
             if(idx>=0){if(c.bday&&!merged[idx].bday){merged[idx]={...merged[idx],bday:c.bday};updated++;}}
             else{merged.push(c);added++;}
           });
-          save({...data,bdayContacts:merged});
-          tk(added+" adicionados, "+updated+" atualizados");
+          window._db.saveBday(merged).then(ok=>{
+            if(ok){setBdayContacts(merged);tk(added+" adicionados, "+updated+" atualizados");}
+            else tk("Erro ao salvar — tente novamente",true);
+          });
         }}/>
       </div>}
     </div>}
@@ -1328,7 +1343,7 @@ function App(){
         // Aniversários da semana do promoter
         const bdayWeek=[
           ...data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===briefPromoter),
-          ...(data.bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===briefPromoter)
+          ...(bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===briefPromoter)
         ].sort((a,b)=>dUntilBday(a.bday)-dUntilBday(b.bday));
 
         function ClientCard({c}){
@@ -1356,7 +1371,7 @@ function App(){
           const pot=pr.filter(c=>c.segment==="Potencial");
           const bdays=[
             ...data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===p),
-            ...(data.bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===p)
+            ...(bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===p)
           ];
           const ACTIONS={VIP:"Relacionamento VIP — reserva mesa, avisa antes do evento.",Fiel:"Reconhece a presença. Um gesto simples cria lealdade.",Potencial:"Criar o hábito agora. Convida pro próximo evento.","Em Risco":"Chama agora, mensagem direta. Não deixa passar mais tempo.",Perdido:"Se voltar por conta própria, acolhe bem."};
           const h=["Nome","Telefone","Segmento","Ausente (dias)","Ticket Médio","Total","Visitas","O que fazer"];
