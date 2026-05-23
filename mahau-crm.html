@@ -445,6 +445,12 @@ function BdayImporter({onImport}){
   return null;
 }
 
+// ─── Called tracking ──────────────────────────────────────────────────────────
+function getWeekKey(){const d=new Date();const mon=new Date(d);mon.setDate(d.getDate()-((d.getDay()+6)%7));return mon.toISOString().slice(0,10);}
+function getCalledKey(promoter){return "mahau_called_"+promoter+"_"+getWeekKey();}
+function loadCalled(promoter){try{return JSON.parse(localStorage.getItem(getCalledKey(promoter))||"[]");}catch{return[];}}
+function saveCalled(promoter,ids){try{localStorage.setItem(getCalledKey(promoter),JSON.stringify(ids));}catch{}}
+
 // ─── Promoters ────────────────────────────────────────────────────────────────
 const PROMOTERS=["Ygor","Matheus","Mahau"];
 const PROMOTER_COLORS={"Ygor":"#b8860b","Matheus":"#2a7a5a","Mahau":"#6a3a9a"};
@@ -469,6 +475,7 @@ function App(){
   const [goalInput,setGoalInput]=useState("");
   const [briefPromoter,setBriefPromoter]=useState("Ygor");
   const [bdayContacts,setBdayContacts]=useState([]);
+  const [calledIds,setCalledIds]=useState(()=>loadCalled("Ygor"));
 
   // Auth — REQUIRED for any data
   const SESSION_KEY="mahau_auth";
@@ -530,8 +537,17 @@ function App(){
     }
   },[role]);
 
+  useEffect(()=>{
+    setCalledIds(loadCalled(briefPromoter));
+  },[briefPromoter]);
+
   function save(nd){setData(nd);window._db&&window._db.save(nd);}
   function tk(msg,err){setToast({msg,err:!!err});setTimeout(()=>setToast({msg:"",err:false}),2500);}
+  function markCalled(id){
+    const updated=[...calledIds.filter(x=>x!==id),id];
+    setCalledIds(updated);
+    saveCalled(briefPromoter,updated);
+  }
   function logWa(promoter,clientId,clientName){
     const log={promoter,clientId,clientName,ts:new Date().toISOString(),date:today()};
     const logs=[...(data.waLogs||[]),log].slice(-2000); // keep last 2000
@@ -1338,13 +1354,14 @@ function App(){
         // Clientes do promoter selecionado
         const myRfm=rfmData.filter(c=>getPromoter(c.id)===briefPromoter);
         // VIPs: todos, toda semana — relacionamento contínuo
-        const vips=myRfm.filter(c=>c.segment==="VIP").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        const sortCalled=(arr)=>[...arr.filter(c=>!calledIds.includes(c.id)),...arr.filter(c=>calledIds.includes(c.id))];
+        const vips=sortCalled(myRfm.filter(c=>c.segment==="VIP").sort((a,b)=>dAgo(b.last)-dAgo(a.last)));
         // Fiéis: todos, toda semana — manter hábito
-        const fieis=myRfm.filter(c=>c.segment==="Fiel").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        const fieis=sortCalled(myRfm.filter(c=>c.segment==="Fiel").sort((a,b)=>dAgo(b.last)-dAgo(a.last)));
         // Potenciais: todos, toda semana — janela curta
         const potenciais=myRfm.filter(c=>c.segment==="Potencial").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
         // Em Risco: todos, com alerta — janela de recuperação
-        const emRisco=myRfm.filter(c=>c.segment==="Em Risco").sort((a,b)=>dAgo(b.last)-dAgo(a.last));
+        const emRisco=sortCalled(myRfm.filter(c=>c.segment==="Em Risco").sort((a,b)=>dAgo(b.last)-dAgo(a.last)));
         // Perdidos: fora do Brief
 
         // Predição do promoter
@@ -1361,23 +1378,25 @@ function App(){
 
         // Aniversários da semana do promoter
         const bdayWeek=[
-          ...data.customers.filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===briefPromoter),
-          ...(bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)<=7&&getPromoter(c.id)===briefPromoter)
-        ].sort((a,b)=>dUntilBday(a.bday)-dUntilBday(b.bday));
+          ...data.customers.filter(c=>c.bday&&dUntilBday(c.bday)===15&&getPromoter(c.id)===briefPromoter),
+          ...(bdayContacts||[]).filter(c=>c.bday&&dUntilBday(c.bday)===15&&getPromoter(c.id)===briefPromoter)
+        ];
 
         function ClientCard({c}){
           const{motivos,acao}=rfmExplain(c.R||1,c.F||1,c.M||1,c.count,c.last,c.total,c.segment,c.avgTicket||0,c.vis30||0);
-          return<div style={{padding:"10px 0",borderBottom:"1px solid #1a1a1a"}}>
+          const called=calledIds.includes(c.id);
+          return<div style={{padding:"10px 0",borderBottom:"1px solid #1a1a1a",opacity:called?0.45:1}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                  <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:"#f0e8c0",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>{c.name}</span>
+                  <span onClick={()=>{setSelId(c.id);setView("perfil");}} style={{fontSize:13,color:called?"#5a5040":"#f0e8c0",fontWeight:600,cursor:"pointer",textDecoration:called?"line-through":"underline"}}>{c.name}</span>
                   {c.segment&&<Bdg segment={c.segment} color={c.color}/>}
+                  {called&&<span style={{fontSize:9,color:"#4a8a4a",border:"1px solid #2a4a2a",borderRadius:10,padding:"1px 6px"}}>chamado ✓</span>}
                 </div>
-                {motivos.slice(0,2).map((m,i)=><div key={i} style={{fontSize:11,color:"#6a5030"}}>· {m}</div>)}
-                <div style={{fontSize:10,color:"#4a3a1a",fontStyle:"italic",marginTop:4,lineHeight:1.5}}>{acao[c.segment]}</div>
+                {!called&&motivos.slice(0,2).map((m,i)=><div key={i} style={{fontSize:11,color:"#6a5030"}}>· {m}</div>)}
+                {!called&&<div style={{fontSize:10,color:"#4a3a1a",fontStyle:"italic",marginTop:4,lineHeight:1.5}}>{acao[c.segment]}</div>}
               </div>
-              <WaBtn phone={c.phone} s={{marginLeft:10,flexShrink:0}} onLog={()=>logWa(briefPromoter,c.id,c.name)}/>
+              <WaBtn phone={c.phone} s={{marginLeft:10,flexShrink:0}} onLog={()=>{logWa(briefPromoter,c.id,c.name);markCalled(c.id);}}/>
             </div>
           </div>;
         }
@@ -1450,7 +1469,7 @@ function App(){
                 <div style={{fontSize:13,color:"#e0d0f0",fontWeight:600}}>{c.name}</div>
                 <div style={{fontSize:11,color:"#6a4a6a"}}>{fmtBday(c.bday)} · {dUntilBday(c.bday)===0?"Hoje!":dUntilBday(c.bday)+"d"} — Chama antes do evento com parabéns</div>
               </div>
-              <WaBtn phone={c.phone} onLog={()=>logWa(briefPromoter,c.id||c.name,c.name)}/>
+              <WaBtn phone={c.phone} onLog={()=>{logWa(briefPromoter,c.id||c.name,c.name);markCalled(c.id||c.name);}}/>
             </div>)}
           </Card>}
 
