@@ -94,14 +94,19 @@ function normAmt(v){
 function normPhone(v){return!v?"":String(v).replace(/[^\d\+\(\)\-\s]/g,"").trim();}
 function normBday(v){
   if(!v)return "";
-  const s=String(v).trim();
-  const m1=s.match(/^(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.]\d{2,4})?$/);
-  if(m1)return m1[1].padStart(2,"0")+"/"+m1[2].padStart(2,"0");
-  const m2=s.match(/^\d{4}-(\d{2})-(\d{2})$/);
-  if(m2)return m2[2]+"/"+m2[1];
-  if(typeof v==="number"&&v>30000&&v<80000){
+  // Excel serial date number
+  if(typeof v==="number"&&v>1000&&v<200000){
     try{const d=new Date(Math.round((v-25569)*86400000));return String(d.getUTCDate()).padStart(2,"0")+"/"+String(d.getUTCMonth()+1).padStart(2,"0");}catch{}
   }
+  const s=String(v).trim();
+  // DD/MM/YYYY or DD/MM/YY or DD/MM
+  const m1=s.match(/^(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?$/);
+  if(m1)return m1[1].padStart(2,"0")+"/"+m1[2].padStart(2,"0");
+  // YYYY-MM-DD
+  const m2=s.match(/^\d{4}-(\d{2})-(\d{2})/);
+  if(m2)return m2[2]+"/"+m2[1];
+  // Try JS Date parse as fallback
+  try{const d=new Date(s);if(!isNaN(d))return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0");}catch{}
   return "";
 }
 function fmtBday(b){if(!b)return"—";const p=b.split("/");return p.length===2?p[0]+"/"+p[1]:b;}
@@ -335,6 +340,7 @@ function BdayImporter({onImport}){
   const [headers,setHeaders]=useState([]);
   const [mapN,setMapN]=useState("");
   const [mapB,setMapB]=useState("");
+  const [mapP,setMapP]=useState("");
   const [log,setLog]=useState("");
   const [err,setErr]=useState("");
   const ref=useRef();
@@ -358,7 +364,8 @@ function BdayImporter({onImport}){
         const lh=hdr.map(h=>({o:h,l:h.toLowerCase()}));
         const find=(...t)=>lh.find(h=>t.some(x=>h.l.includes(x)))?.o||"";
         setMapN(find("nome","name","cliente"));
-        setMapB(find("nasc","aniv","birthday","nascimento","data","birth"));
+        setMapB(find("nasc","aniv","birthday","nascimento","birth"));
+        setMapP(find("telefone","phone","celular","whatsapp","tel","fone"));
         setStep("map");setErr("");
       }catch(e){setErr("Erro: "+e.message);}
     };
@@ -369,7 +376,8 @@ function BdayImporter({onImport}){
     const contacts=rows.map(r=>{
       const name=String(r[mapN]||"").trim();if(!name)return null;
       const bday=mapB?normBday(r[mapB]):"";
-      return{id:"bc_"+Math.random().toString(36).slice(2),name,bday,phone:""};
+      const phone=mapP?normPhone(String(r[mapP]||"").trim()):"";
+      return{id:"bc_"+Math.random().toString(36).slice(2),name,bday,phone};
     }).filter(Boolean);
     onImport(contacts);setLog(contacts.length+" contatos importados");setStep("done");
   }
@@ -389,7 +397,7 @@ function BdayImporter({onImport}){
       React.createElement(Lbl,null,"Mapear Colunas"),
       React.createElement("div",{style:{fontSize:11,color:"#5a5040",marginBottom:14}},rows.length+" linhas encontradas"),
       React.createElement("div",{style:{display:"grid",gap:10,marginBottom:14}},
-        [["Nome *",mapN,setMapN],["Aniversário (DD/MM ou DD/MM/AAAA)",mapB,setMapB]].map(([l,v,set])=>
+        [["Nome *",mapN,setMapN],["Aniversário (DD/MM ou DD/MM/AAAA)",mapB,setMapB],["Telefone (opcional)",mapP,setMapP]].map(([l,v,set])=>
           React.createElement("div",{key:l,style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}},
             React.createElement("div",{style:{fontSize:11,color:"#c8a030",fontFamily:"Georgia,serif"}},l),
             React.createElement("select",{value:v,onChange:e=>set(e.target.value),style:{background:"#0f0f0f",border:"1px solid #222",borderRadius:7,padding:"8px 10px",color:"#e8e0d0",fontSize:12,fontFamily:"Georgia,serif",outline:"none"}},
@@ -401,7 +409,7 @@ function BdayImporter({onImport}){
       ),
       mapN&&React.createElement("div",{style:{marginBottom:14}},
         React.createElement("div",{style:{fontSize:9,letterSpacing:2,color:"#5a4828",textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}},"Preview"),
-        rows.slice(0,4).map((r,i)=>{const n=String(r[mapN]||"").trim();const b=mapB?normBday(r[mapB]):"";return n?React.createElement("div",{key:i,style:{fontSize:11,color:"#8a7a58",padding:"4px 0",borderBottom:"1px solid #181818"}},n+(b?" · 🎂 "+fmtBday(b):"")):"";})
+        rows.slice(0,4).map((r,i)=>{const n=String(r[mapN]||"").trim();const b=mapB?normBday(r[mapB]):"";const p=mapP?normPhone(String(r[mapP]||"").trim()):"";return n?React.createElement("div",{key:i,style:{fontSize:11,color:"#8a7a58",padding:"4px 0",borderBottom:"1px solid #181818"}},n+(b?" · 🎂 "+fmtBday(b):"")+(p?" · 📱":"")):"";})
       )
     ),
     React.createElement(GB,{onClick:doImport,s:{marginBottom:8}},"Confirmar e importar "+rows.length+" contatos"),
