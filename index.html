@@ -1279,7 +1279,7 @@ function App(){
             <Lbl>Base atual</Lbl>
             <span style={{fontSize:11,color:"#4a4030"}}>{(bdayContacts||[]).length} contatos</span>
           </div>
-          {isAdmin&&(bdayContacts||[]).length>0&&<GH onClick={()=>{if(window.confirm("Limpar toda a base de aniversários?"))window._db.saveBday([]).then(()=>setBdayContacts([]));}}>Limpar base de aniversários</GH>}
+          {isAdmin&&(bdayContacts||[]).length>0&&<GH onClick={()=>{const v=window.prompt(`Digite LIMPAR para confirmar a exclusão de ${(bdayContacts||[]).length} contatos. Essa ação não pode ser desfeita.`);if(v===null)return;if(v.trim().toUpperCase()==="LIMPAR"){window._db.saveBday([]).then(()=>setBdayContacts([]));}else{alert("Confirmação incorreta. Nenhum dado foi apagado.");}}} style={{color:"#aa4a4a",borderColor:"#4a1a1a"}}>Limpar base de aniversários</GH>}
         </Card>
         <BdayImporter onImport={(nc)=>{
           const ex=bdayContacts||[];const merged=[...ex];let added=0,updated=0;

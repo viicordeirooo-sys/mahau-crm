@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>Recuperar Base de Aniversários — Mahau CRM</title>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const cfg = {
+    apiKey:"AIzaSyAuhNZWVRjlbkLiifsaZ7-ITXipLiYKqLE",
+    authDomain:"mahaucrm.firebaseapp.com",
+    projectId:"mahaucrm",
+    storageBucket:"mahaucrm.firebasestorage.app",
+    messagingSenderId:"733047479660",
+    appId:"1:733047479660:web:f02a4876f4015882d42749"
+  };
+
+  const app = initializeApp(cfg);
+  const db  = getFirestore(app);
+  const CHUNK = 5000;
+
+  function log(msg, color="#c8a030"){
+    const el=document.getElementById("log");
+    el.innerHTML+=`<div style="color:${color};margin-bottom:2px">${msg}</div>`;
+    el.scrollTop=el.scrollHeight;
+  }
+
+  async function recover(){
+    const btn=document.getElementById("btn");
+    btn.disabled=true;
+    document.getElementById("log").innerHTML="";
+    log("Conectando ao Firestore...");
+
+    // 1. Lê os chunks intactos (bday_1 até bday_6)
+    const all=[];
+    for(let i=1;i<=6;i++){
+      try{
+        const snap=await getDoc(doc(db,"mahau","bday_"+i));
+        if(snap.exists()){
+          const contacts=snap.data().contacts||[];
+          log(`✓ bday_${i} — ${contacts.length} contatos encontrados`,"#6aaa6a");
+          all.push(...contacts);
+        } else {
+          log(`— bday_${i} não existe, pulando`,"#5a5a5a");
+        }
+      } catch(e){
+        log(`✗ Erro ao ler bday_${i}: ${e.message}`,"#aa4a4a");
+      }
+    }
+
+    if(!all.length){
+      log("Nenhum contato encontrado nos chunks. Verifique o Firestore e tente novamente.","#aa4a4a");
+      btn.disabled=false;
+      return;
+    }
+
+    log(`─────────────────────────────────────`,"#2a2a2a");
+    log(`Total coletado: ${all.length} contatos. Gravando de volta...`,"#c8a030");
+
+    // 2. Resalva tudo usando a mesma lógica de chunking do CRM
+    try{
+      const n=Math.max(1,Math.ceil(all.length/CHUNK));
+      for(let i=0;i<n;i++){
+        const chunk=all.slice(i*CHUNK,(i+1)*CHUNK);
+        await setDoc(doc(db,"mahau","bday_"+i),{contacts:chunk,chunk:i,total:n});
+        log(`✓ bday_${i} gravado (${chunk.length} contatos)`,"#6aaa6a");
+      }
+      await setDoc(doc(db,"mahau","bday_meta"),{totalChunks:n,count:all.length});
+      log(`✓ bday_meta atualizado — ${n} chunk(s), ${all.length} contatos`,"#6aaa6a");
+      log(`─────────────────────────────────────`,"#2a2a2a");
+      log(`✅ Recuperação concluída! ${all.length} contatos restaurados.`,"#6aaa6a");
+      log(`Reabra o CRM e vá em Aniversários para confirmar.`,"#8a7a58");
+    } catch(e){
+      log(`✗ Erro ao gravar: ${e.message}`,"#aa4a4a");
+      btn.disabled=false;
+    }
+  }
+
+  window.recover=recover;
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0a0a;font-family:Georgia,serif;color:#e0d8c8;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+.box{background:#0f0f0f;border:1px solid #2a2010;border-radius:12px;padding:32px;width:100%;max-width:520px;}
+h1{color:#c8a030;font-size:18px;margin-bottom:4px;}
+.sub{font-size:12px;color:#5a4828;margin-bottom:8px;line-height:1.6;}
+.info{font-size:11px;color:#3a3a3a;margin-bottom:20px;padding:10px 14px;background:#070707;border:1px solid #1a1a1a;border-radius:7px;line-height:1.7;}
+#log{background:#070707;border:1px solid #1a1a1a;border-radius:8px;padding:14px;font-size:12px;line-height:1.9;min-height:140px;max-height:320px;overflow-y:auto;margin-bottom:16px;}
+button{width:100%;padding:14px;background:#15100a;border:1px solid #c8a030;border-radius:8px;color:#c8a030;cursor:pointer;font-family:Georgia,serif;font-size:14px;}
+button:disabled{opacity:0.4;cursor:not-allowed;}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Recuperar Base de Aniversários</h1>
+  <div class="sub">Mahau CRM · Script de recuperação</div>
+  <div class="info">
+    Lê os chunks <b style="color:#c8a030">bday_1 até bday_6</b> (intactos no Firestore),<br/>
+    mescla todos os contatos e regrava a base completa<br/>
+    incluindo <b style="color:#c8a030">bday_0</b> e <b style="color:#c8a030">bday_meta</b>.
+  </div>
+  <div id="log"><span style="color:#3a3a3a">Aguardando início...</span></div>
+  <button id="btn" onclick="recover()">▶ Iniciar recuperação</button>
+</div>
+</body>
+</html>
