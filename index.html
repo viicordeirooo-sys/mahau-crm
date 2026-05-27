@@ -76,7 +76,7 @@ const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","A
 const STYLES = ["Funk","Sertanejo","Eletrônico","Pagode","Pop","Axé","Forró","Reggaeton","Hip Hop","Rock","MPB","Outro"];
 const SEGS = {VIP:"#b8860b",Fiel:"#2a6a3a",Potencial:"#1a3a6a","Em Risco":"#6a3a10",Perdido:"#5a2020"};
 const PERIODS = [{k:"mensal",l:"Mensal",d:30},{k:"trimestral",l:"Trimestral",d:90},{k:"semestral",l:"Semestral",d:180},{k:"anual",l:"Anual",d:365}];
-const EMPTY = {customers:[],visits:[],goal:0,adminPin:"",managerPin:"",promoterPins:{Ygor:"",Matheus:"",Mahau:"",Aretha:""},configured:false,waLogs:[]};
+const EMPTY = {customers:[],visits:[],goal:0,adminPin:"",managerPin:"",promoterPins:{Ygor:"",Matheus:"",Mahau:""},configured:false,waLogs:[]};
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
@@ -452,11 +452,11 @@ function loadCalled(promoter){try{return JSON.parse(localStorage.getItem(getCall
 function saveCalled(promoter,ids){try{localStorage.setItem(getCalledKey(promoter),JSON.stringify(ids));}catch{}}
 
 // ─── Promoters ────────────────────────────────────────────────────────────────
-const PROMOTERS=["Ygor","Matheus","Mahau","Aretha"];
-const PROMOTER_COLORS={"Ygor":"#b8860b","Matheus":"#2a7a5a","Mahau":"#6a3a9a","Aretha":"#9a3a6a"};
+const PROMOTERS=["Ygor","Matheus","Mahau"];
+const PROMOTER_COLORS={"Ygor":"#b8860b","Matheus":"#2a7a5a","Mahau":"#6a3a9a"};
 function getPromoter(id){
   if(!id)return PROMOTERS[0];
-  let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))%4;
+  let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))%3;
   return PROMOTERS[h];
 }
 
@@ -492,7 +492,6 @@ function App(){
   const [setupPY,setSetupPY]=useState("");
   const [setupPM,setSetupPM]=useState("");
   const [setupPH,setSetupPH]=useState("");
-  const [setupPA,setSetupPA]=useState("");
   const [setupModal,setSetupModal]=useState(false);
 
   // Forms
@@ -572,10 +571,10 @@ function App(){
   }
   function saveSetup(first){
     if(!setupA||setupA.length<4){tk("PIN do Sócio precisa ter ao menos 4 caracteres",true);return;}
-    const nd=Object.assign({},data,{adminPin:setupA,managerPin:setupM,promoterPins:{Ygor:setupPY,Matheus:setupPM,Mahau:setupPH,Aretha:setupPA},configured:true});
+    const nd=Object.assign({},data,{adminPin:setupA,managerPin:setupM,promoterPins:{Ygor:setupPY,Matheus:setupPM,Mahau:setupPH},configured:true});
     save(nd);
     if(first){setFirstSetup(false);setRole("admin");tk("CRM configurado! ✓");}
-    else{setSetupModal(false);setSetupA("");setSetupM("");setSetupPY("");setSetupPM("");setSetupPH("");setSetupPA("");tk("PINs atualizados ✓");}
+    else{setSetupModal(false);setSetupA("");setSetupM("");setSetupPY("");setSetupPM("");setSetupPH("");tk("PINs atualizados ✓");}
   }
 
   // Customer ops
@@ -796,7 +795,6 @@ function App(){
         <F label="PIN do Ygor (opcional)" value={setupPY} onChange={setSetupPY} placeholder="Ex: ygor123"/>
         <F label="PIN do Matheus (opcional)" value={setupPM} onChange={setSetupPM} placeholder="Ex: matheus123"/>
         <F label="PIN do Mahau/Promoter (opcional)" value={setupPH} onChange={setSetupPH} placeholder="Ex: mahau123"/>
-        <F label="PIN da Aretha (opcional)" value={setupPA} onChange={setSetupPA} placeholder="Ex: aretha123"/>
         <button onClick={()=>saveSetup(true)} style={{width:"100%",marginTop:8,padding:"14px",background:"#15100a",border:"1px solid #c8a030",borderRadius:8,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:14}}>
           Configurar e entrar
         </button>
@@ -831,7 +829,6 @@ function App(){
         <F label="PIN do Ygor" value={setupPY} onChange={setSetupPY} placeholder="Opcional"/>
         <F label="PIN do Matheus" value={setupPM} onChange={setSetupPM} placeholder="Opcional"/>
         <F label="PIN do Mahau/Promoter" value={setupPH} onChange={setSetupPH} placeholder="Opcional"/>
-        <F label="PIN da Aretha" value={setupPA} onChange={setSetupPA} placeholder="Opcional"/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <GB onClick={()=>saveSetup(false)}>Salvar</GB>
           <GH onClick={()=>setSetupModal(false)}>Cancelar</GH>
@@ -857,7 +854,7 @@ function App(){
         <div style={{display:"flex",gap:3,alignItems:"center",marginLeft:3}}>
           <span style={{fontSize:9,color:isPromoter?"#b8860b":{admin:"#e8c050",manager:"#5aaa8a"}[role]||"#888",border:"1px solid "+(isPromoter?"#b8860b44":({admin:"#e8c05044",manager:"#5aaa8a44"}[role]||"#88888844")),borderRadius:20,padding:"3px 8px"}}>{isPromoter?promoterName:{admin:"Sócio",manager:"Gerente"}[role]}</span>
           <button onClick={()=>{setRole(null);clearSession();}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>Sair</button>
-          {isAdmin&&<button onClick={()=>{setSetupA(data.adminPin||"");setSetupM(data.managerPin||"");const pp=data.promoterPins||{};setSetupPY(pp.Ygor||"");setSetupPM(pp.Matheus||"");setSetupPH(pp.Mahau||"");setSetupPA(pp.Aretha||"");setSetupModal(true);}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>⚙ PINs</button>}
+          {isAdmin&&<button onClick={()=>{setSetupA(data.adminPin||"");setSetupM(data.managerPin||"");const pp=data.promoterPins||{};setSetupPY(pp.Ygor||"");setSetupPM(pp.Matheus||"");setSetupPH(pp.Mahau||"");setSetupModal(true);}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>⚙ PINs</button>}
         </div>
       </div>
     </div>
