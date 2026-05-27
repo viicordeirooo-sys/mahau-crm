@@ -1,5 +1,6 @@
 # One-off recovery/maintenance scripts — not part of the app
 delete-aretha.html
+clean-pins.html
 
 # Segredos — nunca commitar
 .env
