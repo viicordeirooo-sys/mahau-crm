@@ -33,3 +33,4 @@ package-lock.json
 *.json.bak
 backups/
 mahau-crm-backup-*.json
+rules-backup-ANTES.txt
