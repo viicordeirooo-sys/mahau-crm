@@ -13,6 +13,9 @@ clean-pins.html
 credentials.json
 secrets.json
 service-account*.json
+service-account-key.json
+*-firebase-adminsdk-*.json
+roles.json
 
 # Config local do Claude Code
 .claude/
