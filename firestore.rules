@@ -1,0 +1,51 @@
+rules_version = '2';
+
+// =====================================================================
+//  Mahau CRM — Firestore Security Rules (RBAC via custom claims)
+//  Modelo: default-deny específico por papel.
+//  Papéis (custom claim `role`): 'admin' | 'manager' | 'promoter'.
+//
+//  ATENÇÃO: estas rules EXIGEM Firebase Auth + custom claim `role`.
+//  Não aplicar em produção antes de:
+//    1) o cliente novo (com login) estar no ar, e
+//    2) os 5 usuários terem a claim `role` setada (set-claims.mjs).
+//  Aplicar antes disso BLOQUEIA o app inteiro (request.auth == null).
+//  Ver MIGRATION.md para a ordem de cutover à prova de rollback.
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers de papel ----------
+    function isSignedIn() { return request.auth != null; }
+    function role()       { return isSignedIn() ? request.auth.token.role : ''; }
+    function isAdmin()    { return role() == 'admin'; }
+    function isManager()  { return isAdmin() || role() == 'manager'; }
+    function isStaff()    { return isManager() || role() == 'promoter'; }
+
+    // Identifica os docs da base de aniversários: bday_meta, bday_0, bday_1, ...
+    function isBdayDoc(id) {
+      return id == 'bday_meta' || id.matches('bday_[0-9]+');
+    }
+
+    // ---------- mahau/crm : estado principal do app ----------
+    // Lido por todos os papéis (painel/Brief derivam deste doc);
+    // escrito apenas por admin/gerente (promoter não escreve no Firestore).
+    match /mahau/crm {
+      allow read:  if isStaff();
+      allow write: if isManager();
+    }
+
+    // ---------- mahau/bday_* : base de aniversários (chunks + meta) ----------
+    // Restrita a admin/gerente (volume de PII — telefones).
+    match /mahau/{docId} {
+      allow read:  if isBdayDoc(docId) && isManager();
+      allow write: if isBdayDoc(docId) && isManager();
+    }
+
+    // ---------- default-deny: qualquer outra coleção/doc ----------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -11,6 +11,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   const cfg = {
     apiKey:"AIzaSyAuhNZWVRjlbkLiifsaZ7-ITXipLiYKqLE",
     authDomain:"mahaucrm.firebaseapp.com",
@@ -56,6 +57,16 @@
     // Read-only full dump of the entire "mahau" collection (every doc), for JSON backup.
     backup: async () => { const snap=await getDocs(collection(db,"mahau")); const docs={}; snap.forEach(d=>{docs[d.id]=d.data();}); return docs; }
   };
+  // Firebase Auth — identidade real (email/senha) + papéis via custom claims.
+  // Defense in depth: a UI só dispara chamadas Firestore após onChange confirmar um user.
+  const auth = getAuth(app);
+  window._auth = {
+    onChange: (cb) => onAuthStateChanged(auth, cb),
+    signIn:   (email, pass) => signInWithEmailAndPassword(auth, email, pass),
+    signOut:  () => signOut(auth),
+    // Lê os custom claims do token do usuário atual ({} se indisponível).
+    claims:   async (user) => { try { const r = await user.getIdTokenResult(); return r.claims || {}; } catch { return {}; } }
+  };
   window._dbReady = true;
   window.dispatchEvent(new Event("dbReady"));
 </script>
@@ -78,7 +89,10 @@ const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","A
 const STYLES = ["Funk","Sertanejo","Eletrônico","Pagode","Pop","Axé","Forró","Reggaeton","Hip Hop","Rock","MPB","Outro"];
 const SEGS = {VIP:"#b8860b",Fiel:"#2a6a3a",Potencial:"#1a3a6a","Em Risco":"#6a3a10",Perdido:"#5a2020"};
 const PERIODS = [{k:"mensal",l:"Mensal",d:30},{k:"trimestral",l:"Trimestral",d:90},{k:"semestral",l:"Semestral",d:180},{k:"anual",l:"Anual",d:365}];
-const EMPTY = {customers:[],visits:[],goal:0,adminPin:"",managerPin:"",promoterPins:{Ygor:"",Matheus:"",Mahau:""},configured:false,waLogs:[]};
+// Identidade/papéis agora vivem no Firebase Auth (custom claims), não mais aqui.
+// Docs legados podem ainda conter adminPin/managerPin/promoterPins/configured;
+// são ignorados pelo app e removidos pelo clean-pins.html (Fase 4).
+const EMPTY = {customers:[],visits:[],goal:0,waLogs:[]};
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
@@ -479,22 +493,14 @@ function App(){
   const [bdayContacts,setBdayContacts]=useState([]);
   const [calledIds,setCalledIds]=useState(()=>loadCalled("Ygor"));
 
-  // Auth — REQUIRED for any data
-  const SESSION_KEY="mahau_auth";
-  const SESSION_TTL=8*60*60*1000;
-  function restoreSession(){try{const s=JSON.parse(localStorage.getItem(SESSION_KEY)||"null");if(s&&s.role&&(Date.now()-s.ts)<SESSION_TTL)return s.role;}catch{}return null;}
-  function saveSession(r){try{localStorage.setItem(SESSION_KEY,JSON.stringify({role:r,ts:Date.now()}));}catch{}}
-  function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch{}}
-  const [role,setRole]=useState(()=>restoreSession());
-  const [pinInput,setPinInput]=useState("");
-  const [pinErr,setPinErr]=useState("");
-  const [firstSetup,setFirstSetup]=useState(false);
-  const [setupA,setSetupA]=useState("");
-  const [setupM,setSetupM]=useState("");
-  const [setupPY,setSetupPY]=useState("");
-  const [setupPM,setSetupPM]=useState("");
-  const [setupPH,setSetupPH]=useState("");
-  const [setupModal,setSetupModal]=useState(false);
+  // Firebase Auth — identidade real; papel resolvido do custom claim em onAuthStateChanged.
+  const [role,setRole]=useState(null);
+  const [authUser,setAuthUser]=useState(null);
+  const [authReady,setAuthReady]=useState(false); // onAuthStateChanged já disparou ao menos uma vez
+  const [loginEmail,setLoginEmail]=useState("");
+  const [loginPass,setLoginPass]=useState("");
+  const [loginErr,setLoginErr]=useState("");
+  const [loginBusy,setLoginBusy]=useState(false);
 
   // Forms
   const [cN,setCN]=useState("");const [cP,setCP]=useState("");const [cB,setCB]=useState("");const [cS,setCS]=useState("");const [cNt,setCNt]=useState("");
@@ -515,13 +521,49 @@ function App(){
     window.addEventListener("dbReady",()=>setDbOk(true),{once:true});
   },[]);
 
+  // Mapeia os custom claims do token no formato interno legado de `role`:
+  // "admin" | "manager" | "promoter_<Nome>" | null (sem papel atribuído).
+  function roleFromClaims(claims){
+    if(!claims)return null;
+    if(claims.role==="admin") return "admin";
+    if(claims.role==="manager") return "manager";
+    if(claims.role==="promoter"&&claims.promoter) return "promoter_"+claims.promoter;
+    return null;
+  }
+
+  // Firebase Auth — resolve o papel a partir do custom claim a cada mudança de sessão.
   useEffect(()=>{
-    if(!dbOk)return;
+    let unsub=null;
+    const handle=async (user)=>{
+      if(!user){ setAuthUser(null); setRole(null); setAuthReady(true); return; }
+      const claims=await window._auth.claims(user);
+      setAuthUser(user); setRole(roleFromClaims(claims)); setAuthReady(true);
+    };
+    const start=()=>{ unsub=window._auth.onChange(handle); };
+    if(window._auth) start();
+    else window.addEventListener("dbReady",start,{once:true});
+    return ()=>{ if(unsub)unsub(); window.removeEventListener("dbReady",start); };
+  },[]);
+
+  async function doLogin(){
+    if(loginBusy)return;
+    if(!loginEmail.trim()||!loginPass){setLoginErr("Informe email e senha.");return;}
+    setLoginBusy(true);setLoginErr("");
+    try{
+      await window._auth.signIn(loginEmail.trim(),loginPass);
+      // onAuthStateChanged assume daqui: resolve o papel e renderiza.
+      setLoginPass("");
+    }catch(e){
+      setLoginErr("Email ou senha inválidos.");
+    }finally{ setLoginBusy(false); }
+  }
+
+  useEffect(()=>{
+    if(!dbOk||!authUser)return; // defense in depth: nada de Firestore sem auth confirmada
     window._db.load().then(d=>{
       const m=Object.assign({},EMPTY,d||{});
       setData(m);setGoalInput(String(m.goal||""));
       setLoaded(true);
-      if(!m.configured)setFirstSetup(true);
     });
     window._db.loadBday().then(contacts=>{
       if(contacts)setBdayContacts(contacts);
@@ -529,7 +571,7 @@ function App(){
     const unsub=window._db.sub(d=>setData(Object.assign({},EMPTY,d)));
     const unsubBday=window._db.subBday(contacts=>setBdayContacts(contacts));
     return ()=>{if(unsub)unsub();if(unsubBday)unsubBday();};
-  },[dbOk]);
+  },[dbOk,authUser]);
 
   // Redirect promoter to brief on any role change (including session restore)
   useEffect(()=>{
@@ -557,28 +599,11 @@ function App(){
     save(Object.assign({},data,{waLogs:logs}));
   }
 
+  // Papéis derivados do custom claim (via `role`, resolvido em onAuthStateChanged).
   const isAdmin=role==="admin";
   const isMgr=role==="admin"||role==="manager";
   const isPromoter=role&&role.startsWith("promoter_");
   const promoterName=isPromoter?role.split("_")[1]:null;
-
-  function tryPin(){
-    if(pinInput===data.adminPin&&data.adminPin){setRole("admin");saveSession("admin");setPinInput("");setPinErr("");tk("Sócio — acesso total ✓");}
-    else if(pinInput===data.managerPin&&data.managerPin){setRole("manager");saveSession("manager");setPinInput("");setPinErr("");tk("Gerente — acesso desbloqueado ✓");}
-    else{
-      const pp=data.promoterPins||{};
-      const found=PROMOTERS.find(p=>pp[p]&&pinInput===pp[p]);
-      if(found){const r="promoter_"+found;setRole(r);saveSession(r);setBriefPromoter(found);setView("brief");setPinInput("");setPinErr("");tk(found+" — Brief aberto ✓");}
-      else setPinErr("PIN incorreto.");
-    }
-  }
-  function saveSetup(first){
-    if(!setupA||setupA.length<4){tk("PIN do Sócio precisa ter ao menos 4 caracteres",true);return;}
-    const nd=Object.assign({},data,{adminPin:setupA,managerPin:setupM,promoterPins:{Ygor:setupPY,Matheus:setupPM,Mahau:setupPH},configured:true});
-    save(nd);
-    if(first){setFirstSetup(false);setRole("admin");tk("CRM configurado! ✓");}
-    else{setSetupModal(false);setSetupA("");setSetupM("");setSetupPY("");setSetupPM("");setSetupPH("");tk("PINs atualizados ✓");}
-  }
 
   // Customer ops
   function cVis(id){return data.visits.filter(v=>v.cid===id);}
@@ -822,71 +847,48 @@ function App(){
   const NAV_FULL=[{k:"painel",l:"Painel"},{k:"clientes",l:"Clientes"},{k:"rfm",l:"◈ RFM"},{k:"aniversarios",l:"🎂 Aniversários"},{k:"novo",l:"+ Cliente"},{k:"visita",l:"+ Visita"},{k:"excel",l:"📂 Excel"},{k:"analise",l:"✦ Análise"},{k:"exportar",l:"📤 Exportar"},{k:"baseaniv",l:"📋 Base Aniversários"},{k:"brief",l:"📋 Brief Semanal"},{k:"predicao",l:"🔮 Predição"},{k:"performance",l:"📊 Performance"}];
   const NAV=isPromoter?[{k:"brief",l:"📋 Brief Semanal"}]:NAV_FULL;
 
-  // ── Loading ──────────────────────────────────────────────────────────────────
-  if(!loaded)return(
+  // ── Auth ainda não resolvida (onAuthStateChanged não disparou) ────────────────
+  if(!authReady)return(
     <div style={{minHeight:"100vh",background:"#080808",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#4a4030",fontFamily:"Georgia,serif",gap:16}}>
       <div style={{fontSize:20,color:"#c8a030",fontWeight:700}}>CRM Mahau</div>
-      <div style={{fontSize:12,letterSpacing:3}}>{dbOk?"CARREGANDO...":"CONECTANDO..."}</div>
+      <div style={{fontSize:12,letterSpacing:3}}>CONECTANDO...</div>
     </div>
   );
 
-  // ── First setup ───────────────────────────────────────────────────────────────
-  if(firstSetup)return(
-    <div style={{minHeight:"100vh",background:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",padding:20}}>
-      <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:14,padding:32,width:"100%",maxWidth:400}}>
-        <div style={{fontSize:9,letterSpacing:4,color:"#a08040",textTransform:"uppercase",marginBottom:6}}>Mahau Bar · Itaim Bibi</div>
-        <div style={{fontSize:22,fontWeight:700,color:"#c8a030",marginBottom:4}}>CRM de Clientes</div>
-        <div style={{fontSize:12,color:"#4a4040",marginBottom:20}}>Configure os PINs de acesso</div>
-        <div style={{fontSize:11,color:"#5a5040",marginBottom:20,lineHeight:1.7,background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:8,padding:"12px 14px"}}>
-          <b style={{color:"#c8a030"}}>PIN do Sócio</b> — acesso total<br/>
-          <b style={{color:"#4a8a6a"}}>PIN do Gerente</b> — cadastrar e registrar visitas<br/>
-          <b style={{color:"#b8860b"}}>PIN dos Promoters</b> — só Brief Semanal<br/>
-          <span style={{color:"#4a4a4a"}}>Sem PIN = não vê nada</span>
-        </div>
-        <F label="PIN do Sócio (mín. 4 caracteres) *" value={setupA} onChange={setSetupA} placeholder="Ex: mahau2025"/>
-        <F label="PIN do Gerente (opcional)" value={setupM} onChange={setSetupM} placeholder="Ex: gerente123"/>
-        <F label="PIN do Ygor (opcional)" value={setupPY} onChange={setSetupPY} placeholder="Ex: ygor123"/>
-        <F label="PIN do Matheus (opcional)" value={setupPM} onChange={setSetupPM} placeholder="Ex: matheus123"/>
-        <F label="PIN do Mahau/Promoter (opcional)" value={setupPH} onChange={setSetupPH} placeholder="Ex: mahau123"/>
-        <button onClick={()=>saveSetup(true)} style={{width:"100%",marginTop:8,padding:"14px",background:"#15100a",border:"1px solid #c8a030",borderRadius:8,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:14}}>
-          Configurar e entrar
-        </button>
-      </div>
-    </div>
-  );
-
-  // ── Login wall — block everything without PIN ─────────────────────────────────
-  if(!role)return(
+  // ── Login wall — email + senha (Firebase Auth) ────────────────────────────────
+  if(!authUser)return(
     <div style={{minHeight:"100vh",background:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",padding:20}}>
       <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:14,padding:32,width:"100%",maxWidth:380}}>
         <div style={{fontSize:9,letterSpacing:4,color:"#a08040",textTransform:"uppercase",marginBottom:6}}>Mahau Bar · Itaim Bibi</div>
         <div style={{fontSize:22,fontWeight:700,color:"#c8a030",marginBottom:4}}>CRM de Clientes</div>
-        <div style={{fontSize:12,color:"#4a4040",marginBottom:24}}>Insira seu PIN para acessar</div>
-        <input type="password" value={pinInput} onChange={e=>setPinInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryPin()} placeholder="Digite o PIN" autoFocus
-          style={{width:"100%",boxSizing:"border-box",background:"#0f0f0f",border:"1px solid #333",borderRadius:7,padding:"13px",color:"#e8e0d0",fontSize:18,fontFamily:"Georgia,serif",outline:"none",letterSpacing:6,textAlign:"center",marginBottom:10}}/>
-        {pinErr&&<div style={{fontSize:11,color:"#aa4a4a",textAlign:"center",marginBottom:10}}>{pinErr}</div>}
-        <button onClick={tryPin} style={{width:"100%",padding:"13px",background:"#15100a",border:"1px solid #c8a030",borderRadius:8,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:14}}>Entrar</button>
-        <div style={{fontSize:11,color:"#3a3a3a",textAlign:"center",marginTop:16,lineHeight:1.6}}>PIN do Sócio — acesso total<br/>PIN do Gerente — cadastrar e registrar<br/>PIN do Promoter — só Brief Semanal</div>
+        <div style={{fontSize:12,color:"#4a4040",marginBottom:24}}>Entre com seu email e senha</div>
+        <input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()} placeholder="email@exemplo.com" autoFocus autoComplete="username"
+          style={{width:"100%",boxSizing:"border-box",background:"#0f0f0f",border:"1px solid #333",borderRadius:7,padding:"13px",color:"#e8e0d0",fontSize:14,fontFamily:"Georgia,serif",outline:"none",marginBottom:10}}/>
+        <input type="password" value={loginPass} onChange={e=>setLoginPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()} placeholder="Senha" autoComplete="current-password"
+          style={{width:"100%",boxSizing:"border-box",background:"#0f0f0f",border:"1px solid #333",borderRadius:7,padding:"13px",color:"#e8e0d0",fontSize:14,fontFamily:"Georgia,serif",outline:"none",marginBottom:10}}/>
+        {loginErr&&<div style={{fontSize:11,color:"#aa4a4a",textAlign:"center",marginBottom:10}}>{loginErr}</div>}
+        <button onClick={doLogin} disabled={loginBusy} style={{width:"100%",padding:"13px",background:"#15100a",border:"1px solid #c8a030",borderRadius:8,color:"#c8a030",cursor:loginBusy?"not-allowed":"pointer",opacity:loginBusy?0.5:1,fontFamily:"Georgia,serif",fontSize:14}}>{loginBusy?"Entrando...":"Entrar"}</button>
+        <div style={{fontSize:11,color:"#3a3a3a",textAlign:"center",marginTop:16,lineHeight:1.6}}>Sócio — acesso total<br/>Gerente — cadastrar e registrar<br/>Promoter — só Brief Semanal</div>
       </div>
     </div>
   );
 
-  // ── Change PINs modal ─────────────────────────────────────────────────────────
-  const setupModalEl=setupModal&&isAdmin&&(
-    <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:12,padding:28,width:320}}>
-        <Lbl>Alterar PINs</Lbl>
-        <F label="PIN do Sócio *" value={setupA} onChange={setSetupA} placeholder="Mín. 4 caracteres"/>
-        <F label="PIN do Gerente" value={setupM} onChange={setSetupM} placeholder="Opcional"/>
-        <div style={{fontSize:9,letterSpacing:2,color:"#6a5020",textTransform:"uppercase",marginBottom:6,marginTop:4,fontFamily:"Georgia,serif"}}>PINs dos Promoters</div>
-        <F label="PIN do Ygor" value={setupPY} onChange={setSetupPY} placeholder="Opcional"/>
-        <F label="PIN do Matheus" value={setupPM} onChange={setSetupPM} placeholder="Opcional"/>
-        <F label="PIN do Mahau/Promoter" value={setupPH} onChange={setSetupPH} placeholder="Opcional"/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <GB onClick={()=>saveSetup(false)}>Salvar</GB>
-          <GH onClick={()=>setSetupModal(false)}>Cancelar</GH>
-        </div>
+  // ── Autenticado, mas sem papel configurado (custom claim ausente) ─────────────
+  if(!role)return(
+    <div style={{minHeight:"100vh",background:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",padding:20}}>
+      <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:14,padding:32,width:"100%",maxWidth:400,textAlign:"center"}}>
+        <div style={{fontSize:22,fontWeight:700,color:"#c8a030",marginBottom:10}}>Acesso pendente</div>
+        <div style={{fontSize:12,color:"#8a8a8a",lineHeight:1.7,marginBottom:20}}>Sua conta <b style={{color:"#c8a030"}}>{authUser.email}</b> ainda não tem um papel atribuído. Peça ao administrador para configurar seu acesso.</div>
+        <button onClick={()=>window._auth.signOut()} style={{width:"100%",padding:"13px",background:"#15100a",border:"1px solid #6a3a3a",borderRadius:8,color:"#aa6a6a",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:13}}>Sair</button>
       </div>
+    </div>
+  );
+
+  // ── Loading dos dados ─────────────────────────────────────────────────────────
+  if(!loaded)return(
+    <div style={{minHeight:"100vh",background:"#080808",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#4a4030",fontFamily:"Georgia,serif",gap:16}}>
+      <div style={{fontSize:20,color:"#c8a030",fontWeight:700}}>CRM Mahau</div>
+      <div style={{fontSize:12,letterSpacing:3}}>CARREGANDO...</div>
     </div>
   );
 
@@ -894,7 +896,6 @@ function App(){
   <div style={{minHeight:"100vh",background:"#080808",color:"#e0d8c8",fontFamily:"Georgia,serif"}}>
 
     {toast.msg&&<div style={{position:"fixed",top:14,right:14,zIndex:200,background:toast.err?"#2a1414":"#1a2a1a",border:"1px solid "+(toast.err?"#6a3a3a":"#3a6a3a"),borderRadius:8,padding:"9px 16px",color:toast.err?"#aa6a6a":"#6aaa6a",fontSize:11}}>{toast.msg}</div>}
-    {setupModalEl}
 
     {/* Nav */}
     <div style={{background:"#111111",borderBottom:"1px solid #2a2a2a",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,flexWrap:"wrap",gap:6}}>
@@ -906,8 +907,7 @@ function App(){
         {NAV.map(t=><button key={t.k} onClick={()=>{setView(t.k);setSearch("");}} style={{padding:"4px 8px",borderRadius:6,border:view===t.k?"1px solid #c8a030":"1px solid #1e1e1e",background:view===t.k?"#15100a":"transparent",color:view===t.k?"#e8c050":"#8a8a8a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>{t.l}</button>)}
         <div style={{display:"flex",gap:3,alignItems:"center",marginLeft:3}}>
           <span style={{fontSize:9,color:isPromoter?"#b8860b":{admin:"#e8c050",manager:"#5aaa8a"}[role]||"#888",border:"1px solid "+(isPromoter?"#b8860b44":({admin:"#e8c05044",manager:"#5aaa8a44"}[role]||"#88888844")),borderRadius:20,padding:"3px 8px"}}>{isPromoter?promoterName:{admin:"Sócio",manager:"Gerente"}[role]}</span>
-          <button onClick={()=>{setRole(null);clearSession();}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>Sair</button>
-          {isAdmin&&<button onClick={()=>{setSetupA(data.adminPin||"");setSetupM(data.managerPin||"");const pp=data.promoterPins||{};setSetupPY(pp.Ygor||"");setSetupPM(pp.Matheus||"");setSetupPH(pp.Mahau||"");setSetupModal(true);}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>⚙ PINs</button>}
+          <button onClick={()=>window._auth.signOut()} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>Sair</button>
         </div>
       </div>
     </div>
