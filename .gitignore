@@ -1,2 +1,27 @@
 # One-off recovery/maintenance scripts — not part of the app
 delete-aretha.html
+
+# Segredos — nunca commitar
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets.json
+service-account*.json
+
+# Config local do Claude Code
+.claude/
+
+# Dependências e backups
+node_modules/
+
+# Dados locais sensíveis (não devem ir pro repo)
+*.xlsx
+*.xls
+*.json.bak
+backups/
+mahau-crm-backup-*.json
