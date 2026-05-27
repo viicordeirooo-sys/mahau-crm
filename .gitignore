@@ -22,6 +22,10 @@ roles.json
 
 # Dependências e backups
 node_modules/
+# package.json/lock existem só por causa do set-claims.mjs (firebase-admin via npm).
+# O app é HTML estático servido pelo GitHub Pages — o repo NÃO usa package manager.
+package.json
+package-lock.json
 
 # Dados locais sensíveis (não devem ir pro repo)
 *.xlsx
