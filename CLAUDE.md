@@ -10,55 +10,61 @@ Mahau CRM — a CRM for **Mahau Bar** (a Brazilian nightclub). The entire applic
 
 ## Running / developing
 
-- Edit `index.html` directly. JSX is transpiled **in the browser** by Babel Standalone (`<script type="text/babel">`), so changes take effect on reload — no compile.
-- It must be served over HTTP, not opened via `file://`, because Firebase loads as an ESM module (`<script type="module">`) which browsers block from `file://`. Use any static server, e.g. `python -m http.server` from the repo root, then open the printed URL.
-- Deployment is **GitHub Pages** serving `index.html` from the repo root (that's why the file is named `index.html` rather than `mahau-crm.html`). There is no deploy command — pushing to `main` publishes.
+- Edit `index.html` directly. JSX is transpiled **in the browser** by Babel Standalone, so changes take effect on reload — no compile.
+- It must be served over HTTP, not opened via `file://`, because Firebase loads as an ESM module which browsers block from `file://`. Use `npx http-server -p 8080` from the repo root.
+- Deployment is **Vercel** serving `index.html` from the repo root. Pushing to `main` triggers Vercel to republish.
 
 ## External dependencies (all via CDN, no install)
 
 - **React 18** + **ReactDOM** (UMD production builds)
 - **Babel Standalone** — in-browser JSX
 - **SheetJS / xlsx** — Excel import & export
-- **Firebase 10.12 Firestore** — persistence
+- **Firebase 10.12 Firestore** + **Firebase Auth** — persistence and authentication
 
 ## Architecture
 
 ### Persistence layer (`window._db`)
-Firebase config and the entire DB API are defined in the `<head>` module script and exposed globally as `window._db`. On load it fires a `dbReady` event; `App` waits for `window._dbReady`/the event before loading.
 
-- **All app state lives in a single Firestore document `mahau/crm`.** Every mutation calls `save(nd)`, which writes the *whole* `data` object back. A `onSnapshot` subscription (`window._db.sub`) keeps multiple clients in sync in real time.
-- The `data` shape is the `EMPTY` constant: `{customers, visits, goal, adminPin, managerPin, promoterPins, configured, waLogs}`.
-- **The birthday base is stored separately** in chunked docs `bday_0..N` plus `bday_meta` (`CHUNK = 5000` contacts each), because it can grow large and a single Firestore doc is capped at ~1MB. Use `saveBday`/`loadBday`; it is loaded once (no real-time sub — `subBday` is a no-op).
+Firebase config and the entire DB API are defined in the `<head>` module script and exposed globally as `window._db`. On load it fires a `dbReady` event; `App` waits for `window._dbReady` before loading.
 
-When changing the data model, remember both that a save rewrites the entire document and that `EMPTY` is merged over loaded data (`Object.assign({}, EMPTY, d)`), so new fields must be added to `EMPTY`.
+- All app state lives in a single Firestore document `mahau/crm`. Every mutation calls `save(nd)`, which writes the whole `data` object back. A `onSnapshot` subscription keeps multiple clients in sync in real time.
+- The `data` shape is the `EMPTY` constant: `{customers, visits, goal, waLogs}`. Legacy fields `adminPin`/`managerPin`/`promoterPins`/`configured` were removed in the Firebase Auth migration.
+- The birthday base is stored separately in chunked docs `bday_0..N` plus `bday_meta` (CHUNK = 5000 contacts each). Use `saveBday`/`loadBday`; it is loaded once.
 
 ### Auth & roles
-PIN-based, no real accounts. Three role tiers, gated by booleans derived from `role`:
-- `admin` ("Sócio") — `isAdmin`, full access incl. delete and PIN setup.
-- `manager` ("Gerente") — `isMgr` (admin OR manager), can add customers/visits and import.
-- `promoter_<Name>` — `isPromoter`; sees **only** the "Brief Semanal" view (`NAV` is restricted for promoters).
 
-PINs are checked in `tryPin()` against `adminPin`/`managerPin`/`promoterPins`. Session is persisted in `localStorage` under `mahau_auth` with an 8-hour TTL. First run (`!configured`) forces a setup screen to set PINs.
+**Firebase Auth (email/password)** with custom claims for roles. Six real accounts live in the `mahaucrm` Firebase Auth project. The `role` custom claim drives `isAdmin`/`isMgr`/`isPromoter` booleans in the app.
+
+Three role tiers:
+- `admin` ("Sócio") — `isAdmin`, full access incl. delete actions.
+- `manager` ("Gerente") — `isMgr` (admin OR manager), full read/write minus admin-only destructive actions.
+- `promoter` (Ygor, Matheus, Mahau) — `isPromoter`; sees only the "Brief Semanal" view. Cannot write to Firestore from the app.
+
+Custom claims are applied via the one-off `set-claims.mjs` script, which requires a Firebase Admin SDK service account key. The key is revoked and deleted after use. Generate a new one only when claims need to change.
+
+Firestore Security Rules enforce RBAC server-side: default-deny + role-based access on `/mahau/crm` (staff reads, manager+ writes) and `/mahau/bday_*` (staff reads, manager+ writes). Default-deny on any other collection.
 
 ### Views
-`App` is one large component switching on a single `view` string (`{view==="..." && ...}`). Navigation is the `NAV_FULL` array (rendered as buttons). Views: `painel` (dashboard), `clientes`, `perfil` (customer detail), `rfm`, `aniversarios`, `novo` (+customer), `visita` (+visit), `excel` (import), `analise` (text report), `exportar`, `baseaniv` (birthday import/base), `brief` (weekly per-promoter call list), `predicao`, `performance`.
+
+`App` is one large component switching on a single `view` string. Navigation is the `NAV_FULL` array. Views: `painel`, `clientes`, `perfil`, `rfm`, `aniversarios`, `novo`, `visita`, `excel`, `analise`, `exportar`, `baseaniv`, `brief`, `predicao`, `performance`.
 
 ### Core domain logic
-- **RFM segmentation** — `rfmSegMahau()` defines the bar's segments: **VIP** (avg ticket ≥ R$1000), **Fiel** (3+ visits in 30d & recent), **Potencial** (recent but <3 visits total), **Em Risco** (3+ visits but gone 14+ days), **Perdido** (everything else). `computeRFM(customers, visits)` builds the enriched list; `rfmExplain()` produces the human "why this segment / what to do" text. `rfmSeg` is legacy/dead — ignore it.
-- **Promoter assignment** — `getPromoter(id)` deterministically hashes a customer id to one of the 4 promoters (`PROMOTERS = [Ygor, Matheus, Mahau, Aretha]`). Customers are not stored with an explicit promoter; assignment is computed.
-- **Brief Semanal** — per-promoter weekly call sheet. "Called" state is tracked in `localStorage` keyed per promoter and per ISO-week-Monday (`mahau_called_<promoter>_<weekKey>`), so it resets weekly.
-- **Excel import** (`readFile`/`doImport`) — auto-detects the header row, maps columns, and **dedups by phone first, then by name**, merging into empty fields on a match.
-- **Normalizers** — `normAmt` (BRL string → number), `normPhone`, `normBday` (handles DD/MM, DD/MM/YYYY, YYYY-MM-DD, and Excel serial dates → "DD/MM"). Reuse these rather than re-parsing.
-- **WhatsApp** — `waLink()` builds a `wa.me` URL (assumes Brazil +55); `WaBtn` renders the button and logs sends to `data.waLogs` via `logWa()`.
-- `analyze()` generates the plain-text period report; `exportPDF()` opens a print window.
+
+- **RFM segmentation** — `rfmSegMahau()` defines bar segments: VIP (avg ticket ≥ R$1000), Fiel (3+ visits in 30d), Potencial (recent but <3 visits), Em Risco (3+ visits but gone 14+ days), Perdido. `computeRFM(customers, visits)` builds the enriched list; `rfmExplain()` produces the human "why this segment / what to do" text.
+- **Promoter assignment** — `getPromoter(id)` deterministically hashes a customer id to one of the promoters (`PROMOTERS = [Ygor, Matheus, Mahau]`). Assignment is computed, not stored.
+- **Brief Semanal** — per-promoter weekly call sheet. "Called" state is tracked in localStorage keyed per promoter and per ISO-week-Monday, so it resets weekly.
+- **Excel import** — auto-detects header row, maps columns, dedups by phone first then by name.
+- **Normalizers** — `normAmt` (BRL string → number), `normPhone`, `normBday`. Reuse rather than re-parsing.
+- **WhatsApp** — `waLink()` builds a `wa.me` URL; `WaBtn` renders the button and logs sends to `data.waLogs`.
 
 ## Conventions
 
-- Styling is **inline `style={{}}` objects** throughout — there is no CSS framework and almost no stylesheet (only a few global rules in `<head>`). Match the existing dark gold-on-black palette (`#0a0a0a` bg, `#c8a030` gold accent, `Georgia, serif`). Segment colors live in `SEGS`; promoter colors in `PROMOTER_COLORS`.
-- Reusable UI atoms are short single-letter/short-name components: `F` (labeled input), `Sel`, `Bdg` (badge), `Lbl`, `Card`, `GB`/`GH` (buttons), `WaBtn`. Prefer them over re-rolling markup.
+- Styling is inline `style={{}}` objects throughout — no CSS framework. Match the dark gold-on-black palette (`#0a0a0a` bg, `#c8a030` gold accent, `Georgia, serif`).
+- Reusable UI atoms: `F` (labeled input), `Sel`, `Bdg`, `Lbl`, `Card`, `GB`/`GH`, `WaBtn`. Prefer them over re-rolling markup.
 - Keep all user-facing strings in Portuguese.
 
 ## Important notes
 
-- The Firebase config in `index.html` and `recover-bday.html` is a client-side web config; committing it is expected for Firebase web apps (access is governed by Firestore rules, not secrecy of the config). Do not "fix" this by removing it.
-- The "Limpar" (clear data) action and deletes are intentionally guarded (typed confirmation / admin-only) — preserve those guards when editing.
+- The Firebase config in `index.html` and `recover-bday.html` is a client-side web config; committing it is expected for Firebase web apps. Access is governed by Firestore rules, not secrecy of the config. Do not remove it.
+- The "Limpar" action and deletes are intentionally guarded (typed confirmation / admin-only) — preserve those guards.
+- Service account keys (`*-firebase-adminsdk-*.json`) are gitignored and must never be committed. Generate keys only when needed, revoke and delete after use.
