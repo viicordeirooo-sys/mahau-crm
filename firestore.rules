@@ -37,9 +37,9 @@ service cloud.firestore {
     }
 
     // ---------- mahau/bday_* : base de aniversários (chunks + meta) ----------
-    // Restrita a admin/gerente (volume de PII — telefones).
+    // Leitura: todos os papéis (staff). Escrita: admin/gerente (volume de PII — telefones).
     match /mahau/{docId} {
-      allow read:  if isBdayDoc(docId) && isManager();
+      allow read:  if isBdayDoc(docId) && isStaff();
       allow write: if isBdayDoc(docId) && isManager();
     }
 
