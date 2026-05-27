@@ -89,7 +89,10 @@ const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","A
 const STYLES = ["Funk","Sertanejo","Eletrônico","Pagode","Pop","Axé","Forró","Reggaeton","Hip Hop","Rock","MPB","Outro"];
 const SEGS = {VIP:"#b8860b",Fiel:"#2a6a3a",Potencial:"#1a3a6a","Em Risco":"#6a3a10",Perdido:"#5a2020"};
 const PERIODS = [{k:"mensal",l:"Mensal",d:30},{k:"trimestral",l:"Trimestral",d:90},{k:"semestral",l:"Semestral",d:180},{k:"anual",l:"Anual",d:365}];
-const EMPTY = {customers:[],visits:[],goal:0,adminPin:"",managerPin:"",promoterPins:{Ygor:"",Matheus:"",Mahau:""},configured:false,waLogs:[]};
+// Identidade/papéis agora vivem no Firebase Auth (custom claims), não mais aqui.
+// Docs legados podem ainda conter adminPin/managerPin/promoterPins/configured;
+// são ignorados pelo app e removidos pelo clean-pins.html (Fase 4).
+const EMPTY = {customers:[],visits:[],goal:0,waLogs:[]};
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
@@ -490,29 +493,14 @@ function App(){
   const [bdayContacts,setBdayContacts]=useState([]);
   const [calledIds,setCalledIds]=useState(()=>loadCalled("Ygor"));
 
-  // Auth — REQUIRED for any data
-  const SESSION_KEY="mahau_auth";
-  const SESSION_TTL=8*60*60*1000;
-  function restoreSession(){try{const s=JSON.parse(localStorage.getItem(SESSION_KEY)||"null");if(s&&s.role&&(Date.now()-s.ts)<SESSION_TTL)return s.role;}catch{}return null;}
-  function saveSession(r){try{localStorage.setItem(SESSION_KEY,JSON.stringify({role:r,ts:Date.now()}));}catch{}}
-  function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch{}}
-  const [role,setRole]=useState(null); // resolvido a partir do custom claim em onAuthStateChanged
-  // Firebase Auth
+  // Firebase Auth — identidade real; papel resolvido do custom claim em onAuthStateChanged.
+  const [role,setRole]=useState(null);
   const [authUser,setAuthUser]=useState(null);
   const [authReady,setAuthReady]=useState(false); // onAuthStateChanged já disparou ao menos uma vez
   const [loginEmail,setLoginEmail]=useState("");
   const [loginPass,setLoginPass]=useState("");
   const [loginErr,setLoginErr]=useState("");
   const [loginBusy,setLoginBusy]=useState(false);
-  const [pinInput,setPinInput]=useState("");
-  const [pinErr,setPinErr]=useState("");
-  const [firstSetup,setFirstSetup]=useState(false);
-  const [setupA,setSetupA]=useState("");
-  const [setupM,setSetupM]=useState("");
-  const [setupPY,setSetupPY]=useState("");
-  const [setupPM,setSetupPM]=useState("");
-  const [setupPH,setSetupPH]=useState("");
-  const [setupModal,setSetupModal]=useState(false);
 
   // Forms
   const [cN,setCN]=useState("");const [cP,setCP]=useState("");const [cB,setCB]=useState("");const [cS,setCS]=useState("");const [cNt,setCNt]=useState("");
@@ -533,18 +521,23 @@ function App(){
     window.addEventListener("dbReady",()=>setDbOk(true),{once:true});
   },[]);
 
-  // Firebase Auth — resolve o papel a partir do custom claim `role` (+ `promoter`).
-  // Mantém o formato interno legado de `role`: "admin" | "manager" | "promoter_<Nome>".
+  // Mapeia os custom claims do token no formato interno legado de `role`:
+  // "admin" | "manager" | "promoter_<Nome>" | null (sem papel atribuído).
+  function roleFromClaims(claims){
+    if(!claims)return null;
+    if(claims.role==="admin") return "admin";
+    if(claims.role==="manager") return "manager";
+    if(claims.role==="promoter"&&claims.promoter) return "promoter_"+claims.promoter;
+    return null;
+  }
+
+  // Firebase Auth — resolve o papel a partir do custom claim a cada mudança de sessão.
   useEffect(()=>{
     let unsub=null;
     const handle=async (user)=>{
       if(!user){ setAuthUser(null); setRole(null); setAuthReady(true); return; }
       const claims=await window._auth.claims(user);
-      let r=null;
-      if(claims.role==="admin") r="admin";
-      else if(claims.role==="manager") r="manager";
-      else if(claims.role==="promoter"&&claims.promoter) r="promoter_"+claims.promoter;
-      setAuthUser(user); setRole(r); setAuthReady(true);
+      setAuthUser(user); setRole(roleFromClaims(claims)); setAuthReady(true);
     };
     const start=()=>{ unsub=window._auth.onChange(handle); };
     if(window._auth) start();
@@ -606,28 +599,11 @@ function App(){
     save(Object.assign({},data,{waLogs:logs}));
   }
 
+  // Papéis derivados do custom claim (via `role`, resolvido em onAuthStateChanged).
   const isAdmin=role==="admin";
   const isMgr=role==="admin"||role==="manager";
   const isPromoter=role&&role.startsWith("promoter_");
   const promoterName=isPromoter?role.split("_")[1]:null;
-
-  function tryPin(){
-    if(pinInput===data.adminPin&&data.adminPin){setRole("admin");saveSession("admin");setPinInput("");setPinErr("");tk("Sócio — acesso total ✓");}
-    else if(pinInput===data.managerPin&&data.managerPin){setRole("manager");saveSession("manager");setPinInput("");setPinErr("");tk("Gerente — acesso desbloqueado ✓");}
-    else{
-      const pp=data.promoterPins||{};
-      const found=PROMOTERS.find(p=>pp[p]&&pinInput===pp[p]);
-      if(found){const r="promoter_"+found;setRole(r);saveSession(r);setBriefPromoter(found);setView("brief");setPinInput("");setPinErr("");tk(found+" — Brief aberto ✓");}
-      else setPinErr("PIN incorreto.");
-    }
-  }
-  function saveSetup(first){
-    if(!setupA||setupA.length<4){tk("PIN do Sócio precisa ter ao menos 4 caracteres",true);return;}
-    const nd=Object.assign({},data,{adminPin:setupA,managerPin:setupM,promoterPins:{Ygor:setupPY,Matheus:setupPM,Mahau:setupPH},configured:true});
-    save(nd);
-    if(first){setFirstSetup(false);setRole("admin");tk("CRM configurado! ✓");}
-    else{setSetupModal(false);setSetupA("");setSetupM("");setSetupPY("");setSetupPM("");setSetupPH("");tk("PINs atualizados ✓");}
-  }
 
   // Customer ops
   function cVis(id){return data.visits.filter(v=>v.cid===id);}
@@ -916,30 +892,10 @@ function App(){
     </div>
   );
 
-  // ── Change PINs modal ─────────────────────────────────────────────────────────
-  const setupModalEl=setupModal&&isAdmin&&(
-    <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:"#0e0e0e",border:"1px solid #2a2010",borderRadius:12,padding:28,width:320}}>
-        <Lbl>Alterar PINs</Lbl>
-        <F label="PIN do Sócio *" value={setupA} onChange={setSetupA} placeholder="Mín. 4 caracteres"/>
-        <F label="PIN do Gerente" value={setupM} onChange={setSetupM} placeholder="Opcional"/>
-        <div style={{fontSize:9,letterSpacing:2,color:"#6a5020",textTransform:"uppercase",marginBottom:6,marginTop:4,fontFamily:"Georgia,serif"}}>PINs dos Promoters</div>
-        <F label="PIN do Ygor" value={setupPY} onChange={setSetupPY} placeholder="Opcional"/>
-        <F label="PIN do Matheus" value={setupPM} onChange={setSetupPM} placeholder="Opcional"/>
-        <F label="PIN do Mahau/Promoter" value={setupPH} onChange={setSetupPH} placeholder="Opcional"/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <GB onClick={()=>saveSetup(false)}>Salvar</GB>
-          <GH onClick={()=>setSetupModal(false)}>Cancelar</GH>
-        </div>
-      </div>
-    </div>
-  );
-
   return(
   <div style={{minHeight:"100vh",background:"#080808",color:"#e0d8c8",fontFamily:"Georgia,serif"}}>
 
     {toast.msg&&<div style={{position:"fixed",top:14,right:14,zIndex:200,background:toast.err?"#2a1414":"#1a2a1a",border:"1px solid "+(toast.err?"#6a3a3a":"#3a6a3a"),borderRadius:8,padding:"9px 16px",color:toast.err?"#aa6a6a":"#6aaa6a",fontSize:11}}>{toast.msg}</div>}
-    {setupModalEl}
 
     {/* Nav */}
     <div style={{background:"#111111",borderBottom:"1px solid #2a2a2a",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,flexWrap:"wrap",gap:6}}>
@@ -952,7 +908,6 @@ function App(){
         <div style={{display:"flex",gap:3,alignItems:"center",marginLeft:3}}>
           <span style={{fontSize:9,color:isPromoter?"#b8860b":{admin:"#e8c050",manager:"#5aaa8a"}[role]||"#888",border:"1px solid "+(isPromoter?"#b8860b44":({admin:"#e8c05044",manager:"#5aaa8a44"}[role]||"#88888844")),borderRadius:20,padding:"3px 8px"}}>{isPromoter?promoterName:{admin:"Sócio",manager:"Gerente"}[role]}</span>
           <button onClick={()=>window._auth.signOut()} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>Sair</button>
-          {isAdmin&&<button onClick={()=>{setSetupA(data.adminPin||"");setSetupM(data.managerPin||"");const pp=data.promoterPins||{};setSetupPY(pp.Ygor||"");setSetupPM(pp.Matheus||"");setSetupPH(pp.Mahau||"");setSetupModal(true);}} style={{padding:"3px 8px",borderRadius:6,border:"1px solid #2a2a2a",background:"none",color:"#4a4a4a",fontSize:9,cursor:"pointer",fontFamily:"Georgia,serif"}}>⚙ PINs</button>}
         </div>
       </div>
     </div>
