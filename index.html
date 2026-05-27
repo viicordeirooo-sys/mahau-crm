@@ -10,7 +10,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   const cfg = {
     apiKey:"AIzaSyAuhNZWVRjlbkLiifsaZ7-ITXipLiYKqLE",
     authDomain:"mahaucrm.firebaseapp.com",
@@ -52,7 +52,9 @@
       } catch(e){console.error("loadBday",e);return [];}
     },
     sub: (cb) => onSnapshot(REF, s=>{ if(s.exists()) cb(s.data()); }),
-    subBday: (cb) => { /* real-time not used for large bday base */ return ()=>{}; }
+    subBday: (cb) => { /* real-time not used for large bday base */ return ()=>{}; },
+    // Read-only full dump of the entire "mahau" collection (every doc), for JSON backup.
+    backup: async () => { const snap=await getDocs(collection(db,"mahau")); const docs={}; snap.forEach(d=>{docs[d.id]=d.data();}); return docs; }
   };
   window._dbReady = true;
   window.dispatchEvent(new Event("dbReady"));
@@ -506,6 +508,7 @@ function App(){
   const [aiMode,setAiMode]=useState("mensal");const [aiText,setAiText]=useState("");
   const [exportStyle,setExportStyle]=useState("");
   const [selMonth,setSelMonth]=useState("all"); // "all" or "YYYY-MM"
+  const [backupBusy,setBackupBusy]=useState(false);
 
   useEffect(()=>{
     if(window._dbReady){setDbOk(true);return;}
@@ -708,6 +711,56 @@ function App(){
       exported+=part.length;
     });
     tk("3 arquivos exportados — "+list.length+" contatos divididos ✓");
+  }
+
+  // Recursively convert Firestore Timestamps / Dates to ISO strings so the backup is plain JSON.
+  function backupSerialize(v){
+    if(v===null||v===undefined)return v;
+    if(typeof v.toDate==="function")return v.toDate().toISOString();           // Firestore Timestamp
+    if(v instanceof Date)return v.toISOString();
+    if(typeof v==="object"&&typeof v.seconds==="number"&&typeof v.nanoseconds==="number")
+      return new Date(v.seconds*1000+Math.round(v.nanoseconds/1e6)).toISOString(); // plain {seconds,nanoseconds}
+    if(Array.isArray(v))return v.map(backupSerialize);
+    if(typeof v==="object"){const o={};for(const k in v)o[k]=backupSerialize(v[k]);return o;}
+    return v;
+  }
+
+  async function exportBackup(){
+    if(backupBusy)return;
+    setBackupBusy(true);
+    try{
+      const docs=backupSerialize(await window._db.backup());
+      const crm=docs.crm||{};
+      const bdayContactCount=Object.keys(docs)
+        .filter(k=>k.startsWith("bday_")&&Array.isArray(docs[k].contacts))
+        .reduce((s,k)=>s+docs[k].contacts.length,0);
+      const docCount=Object.keys(docs).length;
+      const payload={
+        exported_at:new Date().toISOString(),
+        project:"mahau-crm",
+        version:1,
+        counts:{
+          customers:(crm.customers||[]).length,
+          visits:(crm.visits||[]).length,
+          waLogs:(crm.waLogs||[]).length,
+          bday_contacts:bdayContactCount,
+          documentos:docCount
+        },
+        collections:{mahau:docs}
+      };
+      const d=new Date();const p=n=>String(n).padStart(2,"0");
+      const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}`;
+      const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");a.href=url;a.download=`mahau-crm-backup-${stamp}.json`;a.click();
+      URL.revokeObjectURL(url);
+      tk(`Backup exportado ✓ — ${docCount} documento${docCount!==1?"s":""}`);
+    }catch(e){
+      console.error("backup",e);
+      tk("Erro ao exportar backup",true);
+    }finally{
+      setBackupBusy(false);
+    }
   }
 
   // Computed
@@ -1332,6 +1385,15 @@ function App(){
         <b style={{color:"#6aaa6a"}}>÷ 3</b> — divide em 3 arquivos iguais para 3 pessoas dispararem no WhatsApp sem risco de bloqueio da Meta.<br/>
         Formato: Nome · Telefone · Segmento · Estilo · Total gasto
       </div>
+      {isAdmin&&<div style={{marginTop:28,paddingTop:20,borderTop:"1px solid #1f1a10"}}>
+        <Lbl>💾 Backup completo</Lbl>
+        <div style={{fontSize:11,color:"#4a4030",marginBottom:14,lineHeight:1.7}}>
+          Baixa um arquivo <b style={{color:"#8a7848"}}>.json</b> com <b style={{color:"#8a7848"}}>todos</b> os dados do Firestore (clientes, visitas, configurações e base de aniversários) — para guardar como backup semanal. Apenas leitura, não altera nada no banco.
+        </div>
+        <GB onClick={exportBackup} disabled={backupBusy} s={{width:"auto",padding:"10px 18px",fontSize:12}}>
+          {backupBusy?"Exportando…":"💾 Exportar Backup (.json)"}
+        </GB>
+      </div>}
     </div>}
 
 
