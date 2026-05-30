@@ -63,6 +63,14 @@ Firestore Security Rules enforce RBAC server-side: default-deny + role-based acc
 - Reusable UI atoms: `F` (labeled input), `Sel`, `Bdg`, `Lbl`, `Card`, `GB`/`GH`, `WaBtn`. Prefer them over re-rolling markup.
 - Keep all user-facing strings in Portuguese.
 
+## Security (XSS)
+
+- **`exportPDF` / `document.write` is the ONLY raw-HTML sink in the app.** Everything else renders through React/JSX, which auto-escapes. There is no `dangerouslySetInnerHTML`.
+- **RULE: any output that builds HTML by string (`document.write`, `innerHTML`) MUST pass through `esc()`.** If you add a new raw export/render in the future, run user data through `esc()` before interpolating it.
+- `esc()` and `cleanName()` live in the **Utils** block. `esc()` = the XSS control (HTML-escapes `& < > " '` on output). `cleanName()` = data hygiene on input (trims, collapses whitespace, strips control chars, caps length) — it is **not** an XSS control and does not restrict charset (accents, apostrophes like `D'Avila`, hyphens pass through).
+- `notes` and `vPro` (promoter) are stored raw and today only ever hit JSX (safe). If either is ever rendered into a raw-HTML sink, escape it with `esc()`.
+- Why it matters: a manager can write a customer `name`; that name flows into `exportPDF` when an admin exports the Análise PDF — without `esc()` it's a manager→admin privilege escalation. Promoters cannot write to Firestore (blocked by the rules), so they are not a write-side vector.
+
 ## Important notes
 
 - The Firebase config in `index.html` and `recover-bday.html` is a client-side web config; committing it is expected for Firebase web apps. Access is governed by Firestore rules, not secrecy of the config. Do not remove it.
