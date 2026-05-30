@@ -97,6 +97,31 @@ const EMPTY = {customers:[],visits:[],goal:0,waLogs:[]};
 // ─── Utils ────────────────────────────────────────────────────────────────────
 const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 const today = () => new Date().toISOString().slice(0,10);
+// Escapa texto para inserção segura em HTML cru (document.write / innerHTML).
+// O & vem PRIMEIRO de propósito, senão re-escapa os & das outras entidades.
+// Use em TODO ponto que monta HTML por string — o resto do app é JSX e o
+// React já escapa sozinho. Disponível global de propósito: se um dia notes/
+// promoter virarem sink de HTML cru, já há com o que protegê-los na hora.
+function esc(s){
+  return String(s==null?"":s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#39;");
+}
+// Higiene LEVE de nome — QUALIDADE DE DADO, não controle de XSS (o controle
+// é o esc() na saída). NÃO restringe charset: acento, apóstrofo (D'Avila) e
+// hífen passam intactos. Só corta caracteres de controle, colapsa espaços e
+// limita tamanho — barra lixo do Excel (null byte, nome de 10KB) sem quebrar
+// nomes legítimos.
+function cleanName(s){
+  return String(s==null?"":s)
+    .replace(/[\x00-\x1F]/g," ")  // control chars viram espaço (colapsados abaixo)
+    .replace(/\s+/g," ")          // colapsa espaços múltiplos
+    .trim()
+    .slice(0,200);                // limite de tamanho
+}
 function waLink(phone){
   if(!phone)return null;
   const n=phone.replace(/[^\d\+]/g,"");
@@ -287,7 +312,8 @@ function analyze(customers,visits,days){
 
 function exportPDF(title,content){
   const w=window.open("","_blank");
-  w.document.write(`<!DOCTYPE html><html><head><meta charset='utf-8'><title>${title}</title><style>body{font-family:Georgia,serif;max-width:780px;margin:40px auto;padding:0 24px;line-height:1.8;color:#1a1a1a}h1{color:#7a5010;border-bottom:2px solid #c8a030;padding-bottom:10px;font-size:18px}.meta{color:#8a8060;font-size:11px;margin-bottom:24px}pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:13px}</style></head><body><h1>Mahau Bar · ${title}</h1><div class='meta'>Gerado em ${new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}</div><pre>${content}</pre><script>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+  const t=esc(title), c=esc(content);
+  w.document.write(`<!DOCTYPE html><html><head><meta charset='utf-8'><title>${t}</title><style>body{font-family:Georgia,serif;max-width:780px;margin:40px auto;padding:0 24px;line-height:1.8;color:#1a1a1a}h1{color:#7a5010;border-bottom:2px solid #c8a030;padding-bottom:10px;font-size:18px}.meta{color:#8a8060;font-size:11px;margin-bottom:24px}pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:13px}</style></head><body><h1>Mahau Bar · ${t}</h1><div class='meta'>Gerado em ${new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}</div><pre>${c}</pre><script>setTimeout(()=>window.print(),400)<\/script></body></html>`);
   w.document.close();
 }
 
@@ -612,8 +638,9 @@ function App(){
 
   function addCust(){
     if(!cN.trim()||!isMgr)return;
-    if(data.customers.find(c=>c.name.toLowerCase().trim()===cN.toLowerCase().trim())){tk("Cliente já existe",true);return;}
-    save({...data,customers:[...data.customers,{id:Date.now()+"",name:cN,phone:cP,bday:cB?normBday(cB):"",style:cS,notes:cNt,created:today()}]});
+    const name=cleanName(cN);
+    if(data.customers.find(c=>c.name.toLowerCase().trim()===name.toLowerCase().trim())){tk("Cliente já existe",true);return;}
+    save({...data,customers:[...data.customers,{id:Date.now()+"",name,phone:cP,bday:cB?normBday(cB):"",style:cS,notes:cNt,created:today()}]});
     setCN("");setCP("");setCB("");setCS("");setCNt("");
     tk("Cliente cadastrado ✓");setView("clientes");
   }
@@ -667,7 +694,7 @@ function App(){
     const newV=[...data.visits];
     let added=0,merged=0,visAdded=0;
     imp.rows.forEach((row,i)=>{
-      const name=String(row[map.name]||"").trim();
+      const name=cleanName(row[map.name]);
       if(!name)return;
       const ph=map.phone?normPhone(row[map.phone]):"";
       const bd=map.bday?normBday(row[map.bday]):"";
