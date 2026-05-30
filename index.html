@@ -53,6 +53,10 @@
       } catch(e){console.error("loadBday",e);return [];}
     },
     sub: (cb) => onSnapshot(REF, s=>{ if(s.exists()) cb(s.data()); }),
+    // Boot novo (Fase 3): 1 listener por colecao + state. Reconstroi os arrays em memoria.
+    subCustomers: (cb) => onSnapshot(collection(db,"customers"), snap=>cb(snap.docs.map(d=>d.data()))),
+    subVisits:    (cb) => onSnapshot(collection(db,"visits"),    snap=>cb(snap.docs.map(d=>d.data()))),
+    subState:     (cb) => onSnapshot(doc(db,"mahau","state"),    s=>cb(s.exists()?s.data():{goal:0,waLogs:[]})),
     subBday: (cb) => { /* real-time not used for large bday base */ return ()=>{}; },
     // Read-only full dump of the entire "mahau" collection (every doc), for JSON backup.
     backup: async () => { const snap=await getDocs(collection(db,"mahau")); const docs={}; snap.forEach(d=>{docs[d.id]=d.data();}); return docs; }
@@ -586,17 +590,20 @@ function App(){
 
   useEffect(()=>{
     if(!dbOk||!authUser)return; // defense in depth: nada de Firestore sem auth confirmada
-    window._db.load().then(d=>{
-      const m=Object.assign({},EMPTY,d||{});
-      setData(m);setGoalInput(String(m.goal||""));
-      setLoaded(true);
+    // Boot Fase 3: 3 fontes convergem pro mesmo `data`. Portao de loading: so renderiza
+    // quando customers, visits E state entregarem o 1o payload (nunca renderiza pela metade).
+    const ready={c:false,v:false,s:false};
+    const gate=k=>{ready[k]=true; if(ready.c&&ready.v&&ready.s)setLoaded(true);};
+    const unsubC=window._db.subCustomers(list=>{setData(prev=>({...prev,customers:list}));gate("c");});
+    const unsubV=window._db.subVisits(list=>{setData(prev=>({...prev,visits:list}));gate("v");});
+    const unsubS=window._db.subState(st=>{
+      setData(prev=>({...prev,goal:st.goal||0,waLogs:st.waLogs||[]}));
+      if(!ready.s)setGoalInput(String(st.goal||"")); // seta o input so no 1o payload, como hoje
+      gate("s");
     });
-    window._db.loadBday().then(contacts=>{
-      if(contacts)setBdayContacts(contacts);
-    });
-    const unsub=window._db.sub(d=>setData(Object.assign({},EMPTY,d)));
+    window._db.loadBday().then(contacts=>{if(contacts)setBdayContacts(contacts);});
     const unsubBday=window._db.subBday(contacts=>setBdayContacts(contacts));
-    return ()=>{if(unsub)unsub();if(unsubBday)unsubBday();};
+    return ()=>{unsubC&&unsubC();unsubV&&unsubV();unsubS&&unsubS();unsubBday&&unsubBday();};
   },[dbOk,authUser]);
 
   // Redirect promoter to brief on any role change (including session restore)
