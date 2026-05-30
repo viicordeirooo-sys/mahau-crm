@@ -58,6 +58,13 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
+    // ---------- /mahau/state : goal + waLogs (saem do crm na Fase 3/4) ----------
+    // Doc pequeno e separado pra o app novo nunca reescrever o crm (834 KB).
+    match /mahau/state {
+      allow read:  if isStaff();
+      allow write: if isManager();
+    }
+
     // ---------- default-deny: qualquer outra coleção/doc ----------
     match /{document=**} {
       allow read, write: if false;
