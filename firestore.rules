@@ -43,6 +43,21 @@ service cloud.firestore {
       allow write: if isBdayDoc(docId) && isManager();
     }
 
+    // ---------- /customers : 1 doc por cliente (migração do array crm.customers) ----------
+    // Leitura: todos os papéis (staff) — boot carrega a coleção inteira.
+    // Escrita: admin/gerente (promoter não escreve no Firestore).
+    match /customers/{customerId} {
+      allow read:  if isStaff();
+      allow write: if isManager();
+    }
+
+    // ---------- /visits : 1 doc por visita (migração do array crm.visits) ----------
+    // visit.cid referencia customers/{customerId}. Mesmo modelo de acesso.
+    match /visits/{visitId} {
+      allow read:  if isStaff();
+      allow write: if isManager();
+    }
+
     // ---------- default-deny: qualquer outra coleção/doc ----------
     match /{document=**} {
       allow read, write: if false;
