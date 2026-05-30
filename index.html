@@ -26,7 +26,7 @@
   const CHUNK=5000;
   window._db = {
     load: async () => { try { const s=await getDoc(REF); return s.exists()?s.data():null; } catch { return null; } },
-    save: async (d) => { try { await setDoc(REF,d); return true; } catch { return false; } },
+    save: async (d) => { try { await setDoc(REF,d); return {ok:true}; } catch(e){ return {ok:false, code:e&&e.code, message:e&&e.message}; } },
     saveBday: async (contacts) => {
       try {
         const n=Math.max(1,Math.ceil(contacts.length/CHUNK));
@@ -513,7 +513,7 @@ function App(){
   const [styleFilter,setStyleFilter]=useState("");
   const [rfmFilter,setRfmFilter]=useState("Todos");
   const [bdayMo,setBdayMo]=useState(new Date().getMonth());
-  const [toast,setToast]=useState({msg:"",err:false});
+  const [toast,setToast]=useState({msg:"",kind:"ok"});
   const [goalInput,setGoalInput]=useState("");
   const [briefPromoter,setBriefPromoter]=useState("Ygor");
   const [bdayContacts,setBdayContacts]=useState([]);
@@ -612,8 +612,23 @@ function App(){
     setCalledIds(loadCalled(briefPromoter));
   },[briefPromoter]);
 
-  function save(nd){setData(nd);window._db&&window._db.save(nd);}
-  function tk(msg,err){setToast({msg,err:!!err});setTimeout(()=>setToast({msg:"",err:false}),2500);}
+  function save(nd){
+    setData(nd);                                   // UI otimista — inalterado (reverter fica pra migração)
+    const bytes=new Blob([JSON.stringify(nd)]).size;
+    if(bytes>950000) tk(`⚠ Armazenamento quase cheio (${Math.round(bytes/10485.76)}% de 1 MB). Migração urgente — avise o admin.`,"warn",8000);
+    if(!window._db)return;
+    window._db.save(nd).then(res=>{
+      if(res&&res.ok)return;                        // salvou: nada muda
+      const m=(res&&res.message)||"";
+      const big=(res&&(res.code==="invalid-argument"||res.code==="resource-exhausted"))||/longer than|1048|bytes|too large/i.test(m);
+      const msg=big
+        ? "ERRO: limite de armazenamento atingido — os dados NÃO foram salvos. Avise o admin AGORA."
+        : "ERRO: os dados NÃO foram salvos (falha de conexão/permissão). Tente de novo ou avise o admin.";
+      window.alert(msg);                            // bloqueante — obrigatório (perda de dado de cliente)
+      tk("❌ "+msg,true,12000);                      // toast vermelho persistente também
+    });
+  }
+  function tk(msg,err,ms){const kind=err==="warn"?"warn":(err?"err":"ok");setToast({msg,kind});setTimeout(()=>setToast({msg:"",kind:"ok"}),ms||2500);}
   function markCalled(id){
     const updated=[...calledIds.filter(x=>x!==id),id];
     setCalledIds(updated);
@@ -922,7 +937,7 @@ function App(){
   return(
   <div style={{minHeight:"100vh",background:"#080808",color:"#e0d8c8",fontFamily:"Georgia,serif"}}>
 
-    {toast.msg&&<div style={{position:"fixed",top:14,right:14,zIndex:200,background:toast.err?"#2a1414":"#1a2a1a",border:"1px solid "+(toast.err?"#6a3a3a":"#3a6a3a"),borderRadius:8,padding:"9px 16px",color:toast.err?"#aa6a6a":"#6aaa6a",fontSize:11}}>{toast.msg}</div>}
+    {toast.msg&&<div style={{position:"fixed",top:14,right:14,zIndex:200,background:toast.kind==="err"?"#2a1414":toast.kind==="warn"?"#2a2110":"#1a2a1a",border:"1px solid "+(toast.kind==="err"?"#6a3a3a":toast.kind==="warn"?"#7a5e2a":"#3a6a3a"),borderRadius:8,padding:"9px 16px",color:toast.kind==="err"?"#aa6a6a":toast.kind==="warn"?"#d8a838":"#6aaa6a",fontSize:11}}>{toast.msg}</div>}
 
     {/* Nav */}
     <div style={{background:"#111111",borderBottom:"1px solid #2a2a2a",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,flexWrap:"wrap",gap:6}}>
