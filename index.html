@@ -566,6 +566,7 @@ function App(){
   const [goalInput,setGoalInput]=useState("");
   const [briefPromoter,setBriefPromoter]=useState("Ygor");
   const [bdayContacts,setBdayContacts]=useState([]);
+  const [bdayLoaded,setBdayLoaded]=useState(false);
   const [calledIds,setCalledIds]=useState(()=>loadCalled("Ygor"));
 
   // Firebase Auth — identidade real; papel resolvido do custom claim em onAuthStateChanged.
@@ -646,7 +647,7 @@ function App(){
       if(!ready.s)setGoalInput(String(st.goal||"")); // seta o input so no 1o payload, como hoje
       gate("s");
     });
-    window._db.loadBday().then(contacts=>{if(contacts)setBdayContacts(contacts);});
+    window._db.loadBday().then(contacts=>{if(contacts)setBdayContacts(contacts);setBdayLoaded(true);});
     const unsubBday=window._db.subBday(contacts=>setBdayContacts(contacts));
     return ()=>{unsubC&&unsubC();unsubV&&unsubV();unsubS&&unsubS();unsubBday&&unsubBday();};
   },[dbOk,authUser]);
@@ -1129,7 +1130,7 @@ function App(){
             {evList.length>0&&<span style={{color:"#4a6a4a"}}>🎯 {evList.length} eventos</span>}
             {bcList.length>0&&<span style={{color:"#6a4a6a"}}>🎂 {bcList.length} base aniv.</span>}
           </div>
-          {tot===0&&<Card><div style={{textAlign:"center",padding:"20px",color:"#3a3a3a",fontSize:13}}>Nenhum aniversariante neste mês.</div></Card>}
+          {tot===0&&<Card><div style={{textAlign:"center",padding:"20px",color:"#3a3a3a",fontSize:13}}>{!bdayLoaded?"Carregando aniversários...":"Nenhum aniversariante neste mês."}</div></Card>}
           {evList.length>0&&<div style={{marginBottom:14}}>
             <div style={{fontSize:9,letterSpacing:2,color:"#4a6a4a",textTransform:"uppercase",marginBottom:8,fontFamily:"Georgia,serif"}}>Clientes de Eventos</div>
             {evList.map(c=>{const rfm=rfmData.find(x=>x.id===c.id);const dl=dUntilBday(c.bday);
