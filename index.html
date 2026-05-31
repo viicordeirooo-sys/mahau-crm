@@ -540,7 +540,7 @@ function BdayImporter({onImport}){
 function getWeekKey(){const d=new Date();const mon=new Date(d);mon.setDate(d.getDate()-((d.getDay()+6)%7));return mon.toISOString().slice(0,10);}
 function getCalledKey(promoter){return "mahau_called_"+promoter+"_"+getWeekKey();}
 function loadCalled(promoter){try{return JSON.parse(localStorage.getItem(getCalledKey(promoter))||"[]");}catch{return[];}}
-function saveCalled(promoter,ids){try{localStorage.setItem(getCalledKey(promoter),JSON.stringify(ids));}catch{}}
+function saveCalled(promoter,ids){try{localStorage.setItem(getCalledKey(promoter),JSON.stringify(ids));return true;}catch(e){console.warn("saveCalled falhou:",e);return false;}}
 
 // ─── Promoters ────────────────────────────────────────────────────────────────
 const PROMOTERS=["Ygor","Matheus","Mahau"];
@@ -678,7 +678,8 @@ function App(){
   function markCalled(id){
     const updated=[...calledIds.filter(x=>x!==id),id];
     setCalledIds(updated);
-    saveCalled(briefPromoter,updated);
+    const ok=saveCalled(briefPromoter,updated);
+    if(!ok) tk("Nao foi possivel salvar a marcacao (armazenamento cheio ou modo privado). Recarregar pode perder a marca.","warn",6000);
   }
   async function logWa(promoter,clientId,clientName){
     const log={promoter,clientId,clientName,ts:new Date().toISOString(),date:today()};
