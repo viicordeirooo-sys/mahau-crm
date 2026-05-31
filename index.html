@@ -10,7 +10,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, query, where, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   const cfg = {
     apiKey:"AIzaSyAuhNZWVRjlbkLiifsaZ7-ITXipLiYKqLE",
@@ -26,7 +26,47 @@
   const CHUNK=5000;
   window._db = {
     load: async () => { try { const s=await getDoc(REF); return s.exists()?s.data():null; } catch { return null; } },
-    save: async (d) => { try { await setDoc(REF,d); return {ok:true}; } catch(e){ return {ok:false, code:e&&e.code, message:e&&e.message}; } },
+    addCustomer: (c) => setDoc(doc(db,"customers",String(c.id)), c),
+    addVisit:    (v) => setDoc(doc(db,"visits",String(v.id)), v),
+    // Cascade: apaga as visitas do cliente (query + batch, em lotes de 500) e DEPOIS o cliente.
+    deleteCustomer: async (id) => {
+      const snap = await getDocs(query(collection(db,"visits"), where("cid","==",String(id))));
+      const refs = snap.docs.map(d=>d.ref);
+      for(let i=0;i<refs.length;i+=500){
+        const batch = writeBatch(db);
+        refs.slice(i,i+500).forEach(r=>batch.delete(r));
+        await batch.commit();
+      }
+      await deleteDoc(doc(db,"customers",String(id)));
+    },
+    // goal/waLogs vivem em mahau/state. merge:true => escrever um campo nao apaga o outro.
+    setState: (partial) => setDoc(doc(db,"mahau","state"), partial, {merge:true}),
+    // Edita campos de 1 cliente (merge — nao apaga os outros campos).
+    updateCustomer: (id, fields) => setDoc(doc(db,"customers",String(id)), fields, {merge:true}),
+    // Limpar tudo: apaga TODOS os customers e visits, em lotes de 500. (admin-only na UI)
+    clearAll: async () => {
+      for(const col of ["customers","visits"]){
+        const snap = await getDocs(collection(db,col));
+        const refs = snap.docs.map(d=>d.ref);
+        for(let i=0;i<refs.length;i+=500){
+          const batch = writeBatch(db);
+          refs.slice(i,i+500).forEach(r=>batch.delete(r));
+          await batch.commit();
+        }
+      }
+    },
+    // Import em lote: grava customers (novos + merges alterados) e visits em batches de 500.
+    importBatch: async (customers, visits) => {
+      const ops = [
+        ...customers.map(c => ({ref: doc(db,"customers",String(c.id)), data:c})),
+        ...visits.map(v   => ({ref: doc(db,"visits",   String(v.id)), data:v})),
+      ];
+      for(let i=0;i<ops.length;i+=500){
+        const batch = writeBatch(db);
+        ops.slice(i,i+500).forEach(o=>batch.set(o.ref,o.data));
+        await batch.commit();
+      }
+    },
     saveBday: async (contacts) => {
       try {
         const n=Math.max(1,Math.ceil(contacts.length/CHUNK));
@@ -52,14 +92,19 @@
         return all;
       } catch(e){console.error("loadBday",e);return [];}
     },
-    sub: (cb) => onSnapshot(REF, s=>{ if(s.exists()) cb(s.data()); }),
     // Boot novo (Fase 3): 1 listener por colecao + state. Reconstroi os arrays em memoria.
     subCustomers: (cb) => onSnapshot(collection(db,"customers"), snap=>cb(snap.docs.map(d=>d.data()))),
     subVisits:    (cb) => onSnapshot(collection(db,"visits"),    snap=>cb(snap.docs.map(d=>d.data()))),
     subState:     (cb) => onSnapshot(doc(db,"mahau","state"),    s=>cb(s.exists()?s.data():{goal:0,waLogs:[]})),
     subBday: (cb) => { /* real-time not used for large bday base */ return ()=>{}; },
     // Read-only full dump of the entire "mahau" collection (every doc), for JSON backup.
-    backup: async () => { const snap=await getDocs(collection(db,"mahau")); const docs={}; snap.forEach(d=>{docs[d.id]=d.data();}); return docs; }
+    backup: async () => {
+      const customers=[], visits=[];
+      (await getDocs(collection(db,"customers"))).forEach(d=>customers.push(d.data()));
+      (await getDocs(collection(db,"visits"))).forEach(d=>visits.push(d.data()));
+      const st=await getDoc(doc(db,"mahau","state"));
+      return { customers, visits, state: st.exists()?st.data():{goal:0,waLogs:[]} };
+    }
   };
   // Firebase Auth — identidade real (email/senha) + papéis via custom claims.
   // Defense in depth: a UI só dispara chamadas Firestore após onChange confirmar um user.
@@ -619,32 +664,25 @@ function App(){
     setCalledIds(loadCalled(briefPromoter));
   },[briefPromoter]);
 
-  function save(nd){
-    setData(nd);                                   // UI otimista — inalterado (reverter fica pra migração)
-    const bytes=new Blob([JSON.stringify(nd)]).size;
-    if(bytes>950000) tk(`⚠ Armazenamento quase cheio (${Math.round(bytes/10485.76)}% de 1 MB). Migração urgente — avise o admin.`,"warn",8000);
-    if(!window._db)return;
-    window._db.save(nd).then(res=>{
-      if(res&&res.ok)return;                        // salvou: nada muda
-      const m=(res&&res.message)||"";
-      const big=(res&&(res.code==="invalid-argument"||res.code==="resource-exhausted"))||/longer than|1048|bytes|too large/i.test(m);
-      const msg=big
-        ? "ERRO: limite de armazenamento atingido — os dados NÃO foram salvos. Avise o admin AGORA."
-        : "ERRO: os dados NÃO foram salvos (falha de conexão/permissão). Tente de novo ou avise o admin.";
-      window.alert(msg);                            // bloqueante — obrigatório (perda de dado de cliente)
-      tk("❌ "+msg,true,12000);                      // toast vermelho persistente também
-    });
-  }
   function tk(msg,err,ms){const kind=err==="warn"?"warn":(err?"err":"ok");setToast({msg,kind});setTimeout(()=>setToast({msg:"",kind:"ok"}),ms||2500);}
+  // Protecao Fase 0 reaproveitada: falha de escrita -> alert bloqueante + toast vermelho.
+  function saveErr(e){
+    const m=(e&&e.message)||"", code=e&&e.code;
+    const big=code==="invalid-argument"||code==="resource-exhausted"||/longer than|1048|bytes|too large/i.test(m);
+    const msg=big
+      ? "ERRO: limite de armazenamento atingido — os dados NAO foram salvos. Avise o admin AGORA."
+      : "ERRO: os dados NAO foram salvos (falha de conexao/permissao). Tente de novo ou avise o admin.";
+    window.alert(msg); tk("❌ "+msg,true,12000); console.error("save error",code||"",m);
+  }
   function markCalled(id){
     const updated=[...calledIds.filter(x=>x!==id),id];
     setCalledIds(updated);
     saveCalled(briefPromoter,updated);
   }
-  function logWa(promoter,clientId,clientName){
+  async function logWa(promoter,clientId,clientName){
     const log={promoter,clientId,clientName,ts:new Date().toISOString(),date:today()};
     const logs=[...(data.waLogs||[]),log].slice(-2000); // keep last 2000
-    save(Object.assign({},data,{waLogs:logs}));
+    try{ await window._db.setState({waLogs:logs}); }catch(e){ console.error("logWa falhou",e); tk("⚠ Log de WhatsApp nao salvou",true,5000); }
   }
 
   // Papéis derivados do custom claim (via `role`, resolvido em onAuthStateChanged).
@@ -658,27 +696,33 @@ function App(){
   function cTot(id){return cVis(id).reduce((s,v)=>s+v.amount,0);}
   function cLast(id){const vs=cVis(id).sort((a,b)=>b.date.localeCompare(a.date));return vs.length?vs[0].date:null;}
 
-  function addCust(){
+  async function addCust(){
     if(!cN.trim()||!isMgr)return;
     const name=cleanName(cN);
     if(data.customers.find(c=>c.name.toLowerCase().trim()===name.toLowerCase().trim())){tk("Cliente já existe",true);return;}
-    save({...data,customers:[...data.customers,{id:Date.now()+"",name,phone:cP,bday:cB?normBday(cB):"",style:cS,notes:cNt,created:today()}]});
+    const c={id:Date.now()+"",name,phone:cP,bday:cB?normBday(cB):"",style:cS,notes:cNt,created:today()};
+    try{ await window._db.addCustomer(c); }catch(e){ saveErr(e); return; }   // falha: avisa e NAO limpa o form
     setCN("");setCP("");setCB("");setCS("");setCNt("");
     tk("Cliente cadastrado ✓");setView("clientes");
   }
-  function addVisit(){
+  async function addVisit(){
     if(!vCid||!vDate||!vAmt||!isMgr)return;
     const finalEvent=vEv||(vDate?autoEvent(vDate):"");
-    save({...data,visits:[...data.visits,{id:Date.now()+"",cid:vCid,date:vDate,amount:Number(vAmt),event:finalEvent,dow:dowOf(vDate),promoter:vPro,notes:vNt}]});
+    const v={id:Date.now()+"",cid:vCid,date:vDate,amount:Number(vAmt),event:finalEvent,dow:dowOf(vDate),promoter:vPro,notes:vNt};
+    try{ await window._db.addVisit(v); }catch(e){ saveErr(e); return; }       // falha: avisa e NAO limpa o form
     setVCid("");setVDate(today());setVAmt("");setVEv("");setVPro("");setVNt("");
     tk("Visita registrada ✓");setView("clientes");
   }
-  function delCust(id){
+  async function delCust(id){
     if(!isAdmin)return;
-    save({...data,customers:data.customers.filter(c=>c.id!==id),visits:data.visits.filter(v=>v.cid!==id)});
+    try{ await window._db.deleteCustomer(id); }catch(e){ saveErr(e); return; }
     setView("clientes");
   }
-  function saveGoal(){if(!isAdmin)return;save({...data,goal:Number(goalInput)||0});tk("Meta salva ✓");}
+  async function saveGoal(){
+    if(!isAdmin)return;
+    try{ await window._db.setState({goal:Number(goalInput)||0}); }catch(e){ saveErr(e); return; }
+    tk("Meta salva ✓");
+  }
 
   // Import
   function readFile(e){
@@ -709,11 +753,12 @@ function App(){
     reader.readAsArrayBuffer(file);
   }
 
-  function doImport(map){
+  async function doImport(map){
     const evDate=imp.eventDate;
     const evDow=dowOf(evDate);
-    const newC=[...data.customers];
-    const newV=[...data.visits];
+    const newC=[...data.customers];        // base p/ dedup (inclui novos no decorrer da importacao)
+    const dirty=new Map();                 // id -> customer a gravar (novos + merges que MUDARAM)
+    const newV=[];                         // visitas novas a gravar
     let added=0,merged=0,visAdded=0;
     imp.rows.forEach((row,i)=>{
       const name=cleanName(row[map.name]);
@@ -727,14 +772,17 @@ function App(){
       if(!ex)ex=newC.find(c=>c.name.toLowerCase().trim()===nl);
       let cid;
       if(ex){
-        // merge — atualiza campos vazios
-        if(ph&&!ex.phone)ex.phone=ph;
-        if(bd&&!ex.bday)ex.bday=bd;
-        if(st&&!ex.style)ex.style=st;
+        let changed=false;
+        if(ph&&!ex.phone){ex.phone=ph;changed=true;}
+        if(bd&&!ex.bday){ex.bday=bd;changed=true;}
+        if(st&&!ex.style){ex.style=st;changed=true;}
+        if(changed)dirty.set(ex.id,ex);    // so grava o customer se algum campo mudou
         cid=ex.id;merged++;
       }else{
         const rid="imp"+i+"_"+Math.random().toString(36).slice(2);
-        newC.push({id:rid,name,phone:ph,bday:bd,style:st,notes:"",created:today()});
+        const nc={id:rid,name,phone:ph,bday:bd,style:st,notes:"",created:today()};
+        newC.push(nc);                     // entra no dedup das proximas linhas
+        dirty.set(rid,nc);
         cid=rid;added++;
       }
       const amount=map.amount?normAmt(row[map.amount]):0;
@@ -743,7 +791,8 @@ function App(){
       newV.push({id:"v"+i+"_"+Math.random().toString(36).slice(2),cid,date:evDate,amount,event:autoEv,dow:evDow,promoter,notes:""});
       visAdded++;
     });
-    save({...data,customers:newC,visits:newV});
+    try{ await window._db.importBatch([...dirty.values()], newV); }
+    catch(e){ saveErr(e); setImp(p=>({...p,step:"mapping"})); return; }   // falha: avisa e volta pro mapeamento
     setImp(p=>({...p,step:"done",log:`✓ ${added} novos clientes\n✓ ${merged} clientes atualizados\n✓ ${visAdded} visitas em ${fmtDate(evDate)} (${evDow})`}));
     tk("Importação concluída ✓");
   }
@@ -803,24 +852,19 @@ function App(){
     if(backupBusy)return;
     setBackupBusy(true);
     try{
-      const docs=backupSerialize(await window._db.backup());
-      const crm=docs.crm||{};
-      const bdayContactCount=Object.keys(docs)
-        .filter(k=>k.startsWith("bday_")&&Array.isArray(docs[k].contacts))
-        .reduce((s,k)=>s+docs[k].contacts.length,0);
-      const docCount=Object.keys(docs).length;
+      const dump=backupSerialize(await window._db.backup());
+      const bday=bdayContacts||[];
       const payload={
         exported_at:new Date().toISOString(),
         project:"mahau-crm",
-        version:1,
+        version:2,                                  // nova estrutura (colecoes)
         counts:{
-          customers:(crm.customers||[]).length,
-          visits:(crm.visits||[]).length,
-          waLogs:(crm.waLogs||[]).length,
-          bday_contacts:bdayContactCount,
-          documentos:docCount
+          customers:dump.customers.length,
+          visits:dump.visits.length,
+          waLogs:((dump.state&&dump.state.waLogs)||[]).length,
+          bday_contacts:bday.length,
         },
-        collections:{mahau:docs}
+        data:{ customers:dump.customers, visits:dump.visits, state:dump.state, bday_contacts:bday }
       };
       const d=new Date();const p=n=>String(n).padStart(2,"0");
       const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}`;
@@ -828,7 +872,7 @@ function App(){
       const url=URL.createObjectURL(blob);
       const a=document.createElement("a");a.href=url;a.download=`mahau-crm-backup-${stamp}.json`;a.click();
       URL.revokeObjectURL(url);
-      tk(`Backup exportado ✓ — ${docCount} documento${docCount!==1?"s":""}`);
+      tk(`Backup exportado ✓ — ${dump.customers.length} clientes, ${dump.visits.length} visitas`);
     }catch(e){
       console.error("backup",e);
       tk("Erro ao exportar backup",true);
@@ -1048,7 +1092,10 @@ function App(){
       </Card>}
 
       {isAdmin&&data.customers.length>0&&<div style={{marginTop:8}}>
-        <GH onClick={()=>{if(window.confirm("ATENÇÃO: Apaga TODOS os clientes e visitas. Confirma?"))save({...data,customers:[],visits:[]});}}>🗑 Limpar todos os dados</GH>
+        <GH onClick={async ()=>{
+          if(!window.confirm("ATENÇÃO: Apaga TODOS os clientes e visitas. Confirma?"))return;
+          try{ await window._db.clearAll(); tk("Todos os dados foram apagados ✓"); }catch(e){ saveErr(e); }
+        }}>🗑 Limpar todos os dados</GH>
       </div>}
 
       {data.customers.length===0&&<div style={{textAlign:"center",padding:"36px 20px",color:"#3a3a3a"}}>
@@ -1248,11 +1295,11 @@ function App(){
         <div style={{display:"flex",gap:8}}>
           <input defaultValue={selCust.bday||""} id="bday-edit" placeholder="Ex: 21/05"
             style={{flex:1,background:"#0f0f0f",border:"1px solid #222",borderRadius:7,padding:"9px 13px",color:"#e8e0d0",fontSize:13,fontFamily:"Georgia,serif",outline:"none"}}/>
-          <button onClick={()=>{
+          <button onClick={async ()=>{
             const val=document.getElementById("bday-edit").value;
             const n=normBday(val);
             if(!n&&val){tk("Formato inválido. Use DD/MM",true);return;}
-            save({...data,customers:data.customers.map(c=>c.id===selCust.id?{...c,bday:n}:c)});
+            try{ await window._db.updateCustomer(selCust.id, {bday:n}); }catch(e){ saveErr(e); return; }
             tk("Aniversário salvo ✓");
           }} style={{padding:"9px 16px",background:"#15100a",border:"1px solid #c8a030",borderRadius:7,color:"#c8a030",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:11}}>Salvar</button>
         </div>
