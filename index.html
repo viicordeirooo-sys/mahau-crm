@@ -546,9 +546,7 @@ function saveCalled(promoter,ids){try{localStorage.setItem(getCalledKey(promoter
 const PROMOTERS=["Ygor","Matheus","Mahau"];
 const PROMOTER_COLORS={"Ygor":"#b8860b","Matheus":"#2a7a5a","Mahau":"#6a3a9a"};
 function getPromoter(id){
-  if(!id)return PROMOTERS[0];
-  let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))%3;
-  return PROMOTERS[h];
+  return "Mahau";
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
