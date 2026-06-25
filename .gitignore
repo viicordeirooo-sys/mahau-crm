@@ -33,4 +33,6 @@ package-lock.json
 *.json.bak
 backups/
 mahau-crm-backup-*.json
+migrate-promoter-mahau-backup-*.json
+migrate-promoter-mahau-backup-*
 rules-backup-ANTES.txt
