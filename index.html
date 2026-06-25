@@ -543,8 +543,8 @@ function loadCalled(promoter){try{return JSON.parse(localStorage.getItem(getCall
 function saveCalled(promoter,ids){try{localStorage.setItem(getCalledKey(promoter),JSON.stringify(ids));return true;}catch(e){console.warn("saveCalled falhou:",e);return false;}}
 
 // ─── Promoters ────────────────────────────────────────────────────────────────
-const PROMOTERS=["Ygor","Matheus","Mahau"];
-const PROMOTER_COLORS={"Ygor":"#b8860b","Matheus":"#2a7a5a","Mahau":"#6a3a9a"};
+const PROMOTERS=["Mahau"];
+const PROMOTER_COLORS={"Mahau":"#6a3a9a"};
 function getPromoter(id){
   return "Mahau";
 }
@@ -562,10 +562,10 @@ function App(){
   const [bdayMo,setBdayMo]=useState(new Date().getMonth());
   const [toast,setToast]=useState({msg:"",kind:"ok"});
   const [goalInput,setGoalInput]=useState("");
-  const [briefPromoter,setBriefPromoter]=useState("Ygor");
+  const [briefPromoter,setBriefPromoter]=useState("Mahau");
   const [bdayContacts,setBdayContacts]=useState([]);
   const [bdayLoaded,setBdayLoaded]=useState(false);
-  const [calledIds,setCalledIds]=useState(()=>loadCalled("Ygor"));
+  const [calledIds,setCalledIds]=useState(()=>loadCalled("Mahau"));
 
   // Firebase Auth — identidade real; papel resolvido do custom claim em onAuthStateChanged.
   const [role,setRole]=useState(null);
@@ -1598,7 +1598,7 @@ function App(){
           </Card>
 
           {/* Seleção de promoter */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(1,1fr)",gap:6,marginBottom:12}}>
             {PROMOTERS.map(p=>{
               const pc=PROMOTER_COLORS[p];
               const myC=rfmData.filter(c=>getPromoter(c.id)===p);
@@ -1768,7 +1768,7 @@ function App(){
         function StatBlock({title,logsSet}){
           return<Card s={{marginBottom:12}}>
             <div style={{fontSize:9,letterSpacing:3,color:"#6a5020",textTransform:"uppercase",marginBottom:12,fontFamily:"Georgia,serif"}}>{title}</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(1,1fr)",gap:8,marginBottom:12}}>
               {PROMOTERS.map(p=>{
                 const n=logsSet.filter(l=>l.promoter===p).length;
                 const pc=PROMOTER_COLORS[p];
