@@ -31,6 +31,7 @@
     load: async () => { try { const s=await getDoc(REF); return s.exists()?s.data():null; } catch { return null; } },
     addCustomer: (c) => setDoc(doc(db,"customers",String(c.id)), c),
     addVisit:    (v) => setDoc(doc(db,"visits",String(v.id)), v),
+    addReserva:  (r) => setDoc(doc(db,"reservas",String(r.id)), r),
     // Cascade: apaga as visitas do cliente (query + batch, em lotes de 500) e DEPOIS o cliente.
     deleteCustomer: async (id) => {
       const snap = await getDocs(query(collection(db,"visits"), where("cid","==",String(id))));
@@ -46,6 +47,9 @@
     setState: (partial) => setDoc(doc(db,"mahau","state"), partial, {merge:true}),
     // Edita campos de 1 cliente (merge — nao apaga os outros campos).
     updateCustomer: (id, fields) => setDoc(doc(db,"customers",String(id)), fields, {merge:true}),
+    // Reservas: coleção pequena, 1 doc por reserva. Sem cascade (reserva não tem filhos).
+    updateReserva: (id, fields) => setDoc(doc(db,"reservas",String(id)), fields, {merge:true}),
+    deleteReserva: (id) => deleteDoc(doc(db,"reservas",String(id))),
     // Limpar tudo: apaga TODOS os customers e visits, em lotes de 500. (admin-only na UI)
     clearAll: async () => {
       for(const col of ["customers","visits"]){
@@ -98,6 +102,7 @@
     // Boot novo (Fase 3): 1 listener por colecao + state. Reconstroi os arrays em memoria.
     subCustomers: (cb) => onSnapshot(collection(db,"customers"), snap=>cb(snap.docs.map(d=>d.data()))),
     subVisits:    (cb) => onSnapshot(collection(db,"visits"),    snap=>cb(snap.docs.map(d=>d.data()))),
+    subReservas:  (cb) => onSnapshot(collection(db,"reservas"),  snap=>cb(snap.docs.map(d=>d.data()))),
     subState:     (cb) => onSnapshot(doc(db,"mahau","state"),    s=>cb(s.exists()?s.data():{goal:0,waLogs:[]})),
     subBday: (cb) => { /* real-time not used for large bday base */ return ()=>{}; },
     // Read-only full dump of the entire "mahau" collection (every doc), for JSON backup.
@@ -144,7 +149,7 @@ const PERIODS = [{k:"mensal",l:"Mensal",d:30},{k:"trimestral",l:"Trimestral",d:9
 // Identidade/papéis agora vivem no Firebase Auth (custom claims), não mais aqui.
 // Docs legados podem ainda conter adminPin/managerPin/promoterPins/configured;
 // são ignorados pelo app e removidos pelo clean-pins.html (Fase 4).
-const EMPTY = {customers:[],visits:[],goal:0,waLogs:[]};
+const EMPTY = {customers:[],visits:[],reservas:[],goal:0,waLogs:[]};
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
@@ -582,6 +587,9 @@ function App(){
   // Forms
   const [cN,setCN]=useState("");const [cP,setCP]=useState("");const [cB,setCB]=useState("");const [cS,setCS]=useState("");const [cNt,setCNt]=useState("");
   const [vCid,setVCid]=useState("");const [vDate,setVDate]=useState(today());const [vAmt,setVAmt]=useState("");const [vEv,setVEv]=useState("");const [vPro,setVPro]=useState("");const [vNt,setVNt]=useState("");
+  // Reservas
+  const [rName,setRName]=useState("");const [rPhone,setRPhone]=useState("");const [rCid,setRCid]=useState("");const [rDate,setRDate]=useState(today());const [rPessoas,setRPessoas]=useState("");const [rTipo,setRTipo]=useState("aniversario");const [rOrigem,setROrigem]=useState("whatsapp");const [rBeneficio,setRBeneficio]=useState("");const [rFollow,setRFollow]=useState("");const [rNt,setRNt]=useState("");
+  const [resFilter,setResFilter]=useState("proximas");
 
   // Import
   const [imp,setImp]=useState({step:"idle",rows:[],headers:[],log:"",err:"",eventDate:today()});
@@ -648,9 +656,11 @@ function App(){
       if(!ready.s)setGoalInput(String(st.goal||"")); // seta o input so no 1o payload, como hoje
       gate("s");
     });
+    // Reservas: colecao pequena, fica FORA do gate de loading (carrega assincrono, nao trava o render).
+    const unsubR=window._db.subReservas(list=>{setData(prev=>({...prev,reservas:list}));});
     window._db.loadBday().then(contacts=>{if(contacts)setBdayContacts(contacts);setBdayLoaded(true);});
     const unsubBday=window._db.subBday(contacts=>setBdayContacts(contacts));
-    return ()=>{unsubC&&unsubC();unsubV&&unsubV();unsubS&&unsubS();unsubBday&&unsubBday();};
+    return ()=>{unsubC&&unsubC();unsubV&&unsubV();unsubS&&unsubS();unsubR&&unsubR();unsubBday&&unsubBday();};
   },[dbOk,authUser]);
 
   // Redirect promoter to brief on any role change (including session restore)
@@ -715,6 +725,13 @@ function App(){
     try{ await window._db.addVisit(v); }catch(e){ saveErr(e); return; }       // falha: avisa e NAO limpa o form
     setVCid("");setVDate(today());setVAmt("");setVEv("");setVPro("");setVNt("");
     tk("Visita registrada ✓");setView("clientes");
+  }
+  async function addReserva(){
+    if(!rName.trim()||!rDate||!isMgr)return;
+    const r={id:Date.now()+"",name:cleanName(rName),phone:rPhone?normPhone(rPhone):"",cid:rCid,date:rDate,pessoas:rPessoas?Number(rPessoas):0,tipo:rTipo,beneficio:rBeneficio,status:"pendente",origem:rOrigem,followUp:rFollow,notes:rNt,created:today()};
+    try{ await window._db.addReserva(r); }catch(e){ saveErr(e); return; }      // falha: avisa e NAO limpa o form
+    setRName("");setRPhone("");setRCid("");setRDate(today());setRPessoas("");setRTipo("aniversario");setROrigem("whatsapp");setRBeneficio("");setRFollow("");setRNt("");
+    tk("Reserva registrada ✓");
   }
   async function delCust(id){
     if(!isAdmin)return;
@@ -940,7 +957,7 @@ function App(){
   const filtC=data.customers.filter(c=>(c.name.toLowerCase().includes(search.toLowerCase())||(c.phone||"").includes(search))&&(!styleFilter||c.style===styleFilter));
   const filtR=rfmData.filter(c=>(rfmFilter==="Todos"||c.segment===rfmFilter)&&c.name.toLowerCase().includes(search.toLowerCase()));
 
-  const NAV_FULL=[{k:"painel",l:"Painel"},{k:"clientes",l:"Clientes"},{k:"rfm",l:"◈ RFM"},{k:"aniversarios",l:"🎂 Aniversários"},{k:"novo",l:"+ Cliente"},{k:"visita",l:"+ Visita"},{k:"excel",l:"📂 Excel"},{k:"analise",l:"✦ Análise"},{k:"exportar",l:"📤 Exportar"},{k:"baseaniv",l:"📋 Base Aniversários"},{k:"brief",l:"📋 Brief Semanal"},{k:"predicao",l:"🔮 Predição"},{k:"performance",l:"📊 Performance"}];
+  const NAV_FULL=[{k:"painel",l:"Painel"},{k:"clientes",l:"Clientes"},{k:"reservas",l:"📅 Reservas"},{k:"rfm",l:"◈ RFM"},{k:"aniversarios",l:"🎂 Aniversários"},{k:"novo",l:"+ Cliente"},{k:"visita",l:"+ Visita"},{k:"excel",l:"📂 Excel"},{k:"analise",l:"✦ Análise"},{k:"exportar",l:"📤 Exportar"},{k:"baseaniv",l:"📋 Base Aniversários"},{k:"brief",l:"📋 Brief Semanal"},{k:"predicao",l:"🔮 Predição"},{k:"performance",l:"📊 Performance"}];
   const NAV=isPromoter?[{k:"brief",l:"📋 Brief Semanal"}]:NAV_FULL;
 
   // ── Auth ainda não resolvida (onAuthStateChanged não disparou) ────────────────
@@ -1360,6 +1377,92 @@ function App(){
         <GB onClick={addVisit} disabled={!vCid||!vDate||!vAmt}>Salvar visita</GB>
       </div>}
     </Card>}
+
+    {/* RESERVAS */}
+    {view==="reservas"&&<div>
+      <Lbl>📅 Reservas</Lbl>
+      {/* Formulário (só manager+ escreve) */}
+      {!isMgr?<Card><div style={{textAlign:"center",padding:"20px",color:"#6a4040",fontSize:13}}>🔒 Acesso restrito</div></Card>:<Card s={{marginBottom:14}}>
+        <Lbl>Nova Reserva</Lbl>
+        <F label="Nome *" value={rName} onChange={setRName} placeholder="Ex: João Silva"/>
+        <F label="Telefone / WhatsApp" value={rPhone} onChange={setRPhone} placeholder="(11) 99999-9999"/>
+        <Sel label="Cliente vinculado" value={rCid} onChange={setRCid}>
+          <option value="">— Sem vínculo —</option>
+          {data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </Sel>
+        <F label="Data do evento *" value={rDate} type="date" onChange={setRDate}/>
+        {rDate&&<div style={{fontSize:11,color:"#6a5020",marginBottom:10,marginTop:-6}}>📅 {dowOf(rDate)}</div>}
+        <F label="Nº de pessoas" value={rPessoas} type="number" onChange={setRPessoas} placeholder="Ex: 8"/>
+        <Sel label="Tipo" value={rTipo} onChange={setRTipo}>
+          <option value="aniversario">Aniversário</option>
+          <option value="mesa">Mesa</option>
+          <option value="camarote">Camarote</option>
+        </Sel>
+        <Sel label="Origem" value={rOrigem} onChange={setROrigem}>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="instagram">Instagram</option>
+          <option value="indicacao">Indicação</option>
+          <option value="outro">Outro</option>
+        </Sel>
+        <F label="Benefício" value={rBeneficio} onChange={setRBeneficio} placeholder="Ex: mesa cortesia, espumante..."/>
+        <F label="Follow-up" value={rFollow} type="date" onChange={setRFollow} note="quando cobrar retorno"/>
+        <F label="Observações" value={rNt} onChange={setRNt} placeholder="Detalhes da reserva..."/>
+        <GB onClick={addReserva} disabled={!rName.trim()||!rDate}>Salvar reserva</GB>
+      </Card>}
+
+      {/* Lista */}
+      {(()=>{
+        const ST={pendente:{l:"Pendente",c:"#d8a838"},confirmado:{l:"Confirmado",c:"#6aaa6a"},compareceu:{l:"Compareceu",c:"#5a8ac8"},nao_compareceu:{l:"Não veio",c:"#aa4a4a"}};
+        const nextSt={pendente:"confirmado",confirmado:"compareceu",compareceu:"pendente",nao_compareceu:"pendente"};
+        const TIPO_L={aniversario:"Aniversário",mesa:"Mesa",camarote:"Camarote"};
+        const ORIG_L={whatsapp:"WhatsApp",instagram:"Instagram",indicacao:"Indicação",outro:"Outro"};
+        const hoje=today();
+        const isFollow=r=>r.followUp&&r.followUp<=hoje&&r.status==="pendente";
+        const all=(data.reservas||[]).slice().sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+        const list=resFilter==="proximas"?all.filter(r=>(r.date||"")>=hoje):resFilter==="follow"?all.filter(isFollow):all;
+        const FILTERS=[{k:"proximas",l:"Próximas"},{k:"todas",l:"Todas"},{k:"follow",l:"Follow-up"}];
+        async function setStatus(r,ns){ try{ await window._db.updateReserva(r.id,{status:ns}); }catch(e){ saveErr(e); } }
+        async function delReserva(r){ if(!window.confirm(`Apagar a reserva de ${r.name}?`))return; try{ await window._db.deleteReserva(r.id); tk("Reserva apagada ✓"); }catch(e){ saveErr(e); } }
+        return<div>
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            {FILTERS.map(f=><button key={f.k} onClick={()=>setResFilter(f.k)} style={{padding:"5px 12px",borderRadius:20,border:"1px solid "+(resFilter===f.k?"#c8a030":"#2a2a2a"),background:resFilter===f.k?"#1a1500":"transparent",color:resFilter===f.k?"#c8a030":"#5a5a5a",fontSize:11,cursor:"pointer",fontFamily:"Georgia,serif"}}>{f.l}</button>)}
+          </div>
+          {list.length===0?<Card><div style={{textAlign:"center",padding:"20px",color:"#3a3a3a",fontSize:13}}>Nenhuma reserva {resFilter==="proximas"?"próxima":resFilter==="follow"?"para cobrar":"registrada"}.</div></Card>:
+          list.map(r=>{
+            const st=ST[r.status]||ST.pendente;
+            const cli=r.cid?data.customers.find(c=>c.id===r.cid):null;
+            const flw=isFollow(r);
+            return<Card key={r.id} s={{marginBottom:8,borderColor:flw?"#8a6020":"#252525",background:flw?"#12100a":"#0f0f0f"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontSize:13,color:"#e8c050",fontWeight:600}}>{fmtDate(r.date)}</span>
+                    {r.date===hoje&&<span style={{fontSize:9,color:"#c87828",border:"1px solid #c87828",borderRadius:20,padding:"1px 7px"}}>HOJE!</span>}
+                    {flw&&<span style={{fontSize:9,color:"#d8a838",border:"1px solid #8a6020",borderRadius:20,padding:"1px 7px"}}>⏰ COBRAR RETORNO</span>}
+                  </div>
+                  <div style={{fontSize:13,color:"#d0c8b0",marginBottom:2}}>{r.name}{cli&&<span style={{fontSize:10,color:"#6a8a6a",marginLeft:6}}>· cliente: {cli.name}</span>}</div>
+                  <div style={{fontSize:11,color:"#6a5e40",display:"flex",gap:10,flexWrap:"wrap"}}>
+                    {r.pessoas>0&&<span>👥 {r.pessoas}</span>}
+                    <span>{TIPO_L[r.tipo]||r.tipo}</span>
+                    {r.beneficio&&<span style={{color:"#8a7848"}}>🎁 {r.beneficio}</span>}
+                    <span style={{color:"#4a4030"}}>via {ORIG_L[r.origem]||r.origem}</span>
+                  </div>
+                  {r.notes&&<div style={{fontSize:11,color:"#5a5040",marginTop:4}}>{r.notes}</div>}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
+                  {r.phone&&<WaBtn phone={r.phone}/>}
+                  {isMgr&&<button onClick={()=>delReserva(r)} title="Apagar" style={{background:"none",border:"none",color:"#4a3a3a",fontSize:13,cursor:"pointer",fontFamily:"Georgia,serif",padding:0}}>✕</button>}
+                </div>
+              </div>
+              {isMgr&&<div style={{display:"flex",gap:6,alignItems:"center",marginTop:10}}>
+                <button onClick={()=>setStatus(r,nextSt[r.status]||"confirmado")} title="Avançar status" style={{background:st.c+"22",border:"1px solid "+st.c,borderRadius:20,padding:"3px 12px",fontSize:10,color:st.c,cursor:"pointer",fontFamily:"Georgia,serif",letterSpacing:1}}>{st.l}</button>
+                {r.status!=="nao_compareceu"&&<button onClick={()=>setStatus(r,"nao_compareceu")} style={{background:"none",border:"1px solid #3a2020",borderRadius:20,padding:"3px 10px",fontSize:9,color:"#8a4a4a",cursor:"pointer",fontFamily:"Georgia,serif"}}>não veio</button>}
+              </div>}
+            </Card>;
+          })}
+        </div>;
+      })()}
+    </div>}
 
     {/* EXCEL */}
     {view==="excel"&&<div>

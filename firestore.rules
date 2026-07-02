@@ -58,6 +58,14 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
+    // ---------- /reservas : 1 doc por reserva (mesa/aniversário/camarote) ----------
+    // reserva.cid referencia opcionalmente customers/{customerId} ("" se avulsa).
+    // Leitura: todos os papéis (staff). Escrita: admin/gerente (promoter não escreve).
+    match /reservas/{reservaId} {
+      allow read:  if isStaff();
+      allow write: if isManager();
+    }
+
     // ---------- /mahau/state : goal + waLogs (saem do crm na Fase 3/4) ----------
     // Doc pequeno e separado pra o app novo nunca reescrever o crm (834 KB).
     match /mahau/state {
