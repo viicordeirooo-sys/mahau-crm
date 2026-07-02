@@ -25,10 +25,8 @@
   // servidor quando ha mudanca — corta a re-leitura da base inteira a cada reload.
   // persistentMultipleTabManager: varias abas compartilham o cache sem failed-precondition.
   const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
-  const REF = doc(db, "mahau", "crm");
   const CHUNK=5000;
   window._db = {
-    load: async () => { try { const s=await getDoc(REF); return s.exists()?s.data():null; } catch { return null; } },
     addCustomer: (c) => setDoc(doc(db,"customers",String(c.id)), c),
     addVisit:    (v) => setDoc(doc(db,"visits",String(v.id)), v),
     addReserva:  (r) => setDoc(doc(db,"reservas",String(r.id)), r),

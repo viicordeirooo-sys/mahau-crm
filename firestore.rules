@@ -28,14 +28,6 @@ service cloud.firestore {
       return id == 'bday_meta' || id.matches('bday_[0-9]+');
     }
 
-    // ---------- mahau/crm : estado principal do app ----------
-    // Lido por todos os papéis (painel/Brief derivam deste doc);
-    // escrito apenas por admin/gerente (promoter não escreve no Firestore).
-    match /mahau/crm {
-      allow read:  if isStaff();
-      allow write: if isManager();
-    }
-
     // ---------- mahau/bday_* : base de aniversários (chunks + meta) ----------
     // Leitura: todos os papéis (staff). Escrita: admin/gerente (volume de PII — telefones).
     match /mahau/{docId} {
