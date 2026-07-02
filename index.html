@@ -10,7 +10,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, query, where, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, query, where, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   const cfg = {
     apiKey:"AIzaSyAuhNZWVRjlbkLiifsaZ7-ITXipLiYKqLE",
@@ -21,7 +21,10 @@
     appId:"1:733047479660:web:f02a4876f4015882d42749"
   };
   const app = initializeApp(cfg);
-  const db = getFirestore(app);
+  // Cache local IndexedDB: onSnapshot/getDoc leem do cache primeiro e so batem no
+  // servidor quando ha mudanca — corta a re-leitura da base inteira a cada reload.
+  // persistentMultipleTabManager: varias abas compartilham o cache sem failed-precondition.
+  const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
   const REF = doc(db, "mahau", "crm");
   const CHUNK=5000;
   window._db = {
